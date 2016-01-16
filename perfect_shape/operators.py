@@ -3,12 +3,11 @@ import bmesh
 import mathutils
 import math
 
-from builtins import print
 from mathutils import Vector, Matrix
 from mathutils.geometry import box_fit_2d
 from mathutils.geometry import normal as calculate_normal
 from functools import reduce
-from perfect_shape.utils import prepare_loops, is_clockwise, select_only
+from perfect_shape.utils import prepare_loops, is_clockwise, select_only, generate_icons, refresh_icons
 from perfect_shape.user_interface import PerfectShapeUI
 
 
@@ -24,7 +23,7 @@ class PerfectPattern(bpy.types.Operator):
         selected_edges = [e for e in object_bm.edges if e.select]
         loops = prepare_loops(selected_edges[:])
 
-        if loops is None:
+        if not loops:
             self.report({'WARNING'}, "Please select boundary loop of selected area.")
             return {'CANCELLED'}
 
@@ -32,84 +31,51 @@ class PerfectPattern(bpy.types.Operator):
             self.report({'WARNING'}, "Please select one loop.")
             return {'CANCELLED'}
 
-        object.perfect_pattern.clear()
         loop_verts = loops[0][0][0]
+
+        if len(loop_verts) < 2:
+            self.report({'WARNING'}, "Please select more edges.")
+            return {'CANCELLED'}
+
+        object.perfect_pattern.vertices.clear()
+        object.perfect_pattern.faces.clear()
         shape_bm = bmesh.new()
         for loop_vert in loop_verts:
-            vert = object.perfect_pattern.add()
+            vert = object.perfect_pattern.vertices.add()
             vert.co = loop_vert.co.copy()
             shape_bm.verts.new(loop_vert.co.copy())
 
-
-        forward = reduce(lambda v1, v2: v1.normal.copy() if isinstance(v1, bmesh.types.BMVert)
+        forward = reduce(lambda v1, v2: v1.normal.copy() + v2.normal.copy() if isinstance(v1, bmesh.types.BMVert)
                          else v1.copy() + v2.normal.copy(), loop_verts).normalized()
 
         shape_bm.faces.new(shape_bm.verts)
         shape_bm.faces.ensure_lookup_table()
         center = shape_bm.faces[0].calc_center_median()
+        bmesh.ops.triangulate(shape_bm, faces=shape_bm.faces)
+
         matrix_rotation = forward.to_track_quat('Z', 'X').to_matrix().to_4x4()
         matrix_rotation.transpose()
         matrix = matrix_rotation * Matrix.Translation(-center)
 
-        for pattern_vert in object.perfect_pattern:
+        for pattern_vert in object.perfect_pattern.vertices:
             pattern_vert.co = matrix * Vector(pattern_vert.co)
+
+        pattern_faces = object.perfect_pattern.faces
+        for face in shape_bm.faces:
+            item = pattern_faces.add()
+            item.indices = [v.index for v in face.verts]
+
 
         return {'FINISHED'}
 
 
 class PerfectShape(bpy.types.Operator, PerfectShapeUI):
-    bl_idname = "mesh.perfect_shape"
-    bl_label = "To Perfect Shape"
-    bl_options = {"REGISTER", "UNDO"}
-
-    shape_types = [("PATTERN", "Perfect Pattern", "", "MESH_DATA", 1),
-                   ("OBJECT", "Object", "", "MESH_CUBE", 2),
-                   ("RECTANGLE", "Rectangle", "", "MESH_PLANE", 3),
-                   ("CIRCLE", "Circle", "", "MESH_CIRCLE", 4)]
-
-    fill_types = [("ORIGINAL", "Original", "", "", 1),
-                  ("COLLAPSE", "Collapse", "", "", 2),
-                  ("HOLE", "Hole", "", "", 3),
-                  ("NGON", "Ngon", "", "", 4)]
-
-    projection_types = [("NORMAL", "Normal", "", "", 1),
-                        ("X", "X", "", "", 2),
-                        ("Y", "Y", "", "", 3),
-                        ("Z", "Z", "", "", 4)]
-
-    shape = bpy.props.EnumProperty(name="A perfect", items=shape_types, default="CIRCLE")
-    projection = bpy.props.EnumProperty(name="Projection", items=projection_types, default="NORMAL")
-    invert_projection = bpy.props.BoolProperty(name="Invert Direction", default=False)
-    use_ray_cast = bpy.props.BoolProperty(name="Wrap to surface", default=True)
-    fill_type = bpy.props.EnumProperty(name="Fill Type", items=fill_types, default="ORIGINAL")
-    fill_flatten = bpy.props.BoolProperty(name="Flatten", default=False)
-
-    active_as_first = bpy.props.BoolProperty(name="Active as First", default=False)
-    shape_rotation = bpy.props.BoolProperty(name="Shape Rotation", default=False)
-
-    ratio_a = bpy.props.IntProperty(name="Ratio a", min=1, default=1)
-    ratio_b = bpy.props.IntProperty(name="Ratio b", min=1, default=1)
-    is_square = bpy.props.BoolProperty(name="Square", default=False)
-
-    target = bpy.props.StringProperty(name="Object")
-    factor = bpy.props.FloatProperty(name="Factor", min=0.0, max=1.0, default=1.0)
-    inset = bpy.props.FloatProperty(name="Inset", min=0.0, default=0)
-    outset = bpy.props.FloatProperty(name="Outset", min=0.0, default=0)
-    shift = bpy.props.IntProperty(name="Shift")
-    rotation = bpy.props.FloatProperty(name="Rotation", subtype="ANGLE", default=0)
-    offset = bpy.props.FloatProperty(name="Offset")
-    span = bpy.props.IntProperty(name="Span", min=0)
-    extrude = bpy.props.FloatProperty(name="Extrude", default=0)
-    relax = bpy.props.IntProperty(name="Relax", min=0, max=4)
-
     @classmethod
     def poll(cls, context):
         return context.mode == "EDIT_MESH" and context.object is not None
 
     def check(self, context):
         return True
-
-
 
     def execute(self, context):
         object = context.object
@@ -133,16 +99,19 @@ class PerfectShape(bpy.types.Operator, PerfectShapeUI):
 
         object_bvh = mathutils.bvhtree.BVHTree.FromObject(object, context.scene, deform=False)
 
+        refresh_icons()
+
         for (loop_verts, loop_edges), is_loop_cyclic, is_loop_boundary in loops:
             if len(loop_edges) < 3:
                 continue
             loop_verts_len = len(loop_verts)
+            context.window_manager.perfect_shape.preview_verts_count = loop_verts_len
             if self.projection == "NORMAL":
                 if is_loop_boundary:
                     forward = calculate_normal([v.co for v in loop_verts])
                 else:
                     forward = reduce(
-                        lambda v1, v2: v1.normal.copy() if isinstance(v1, bmesh.types.BMVert)
+                        lambda v1, v2: v1.normal.copy() + v2.normal.copy() if isinstance(v1, bmesh.types.BMVert)
                         else v1.copy() + v2.normal.copy(), loop_verts).normalized()
             else:
                 forward = Vector([v == self.projection for v in ["X", "Y", "Z"]])
@@ -213,15 +182,15 @@ class PerfectShape(bpy.types.Operator, PerfectShapeUI):
                 bmesh.ops.scale(shape_bm, vec=Vector((1, 1, 1))*(1+self.offset), verts=shape_verts)
                 bmesh.ops.transform(shape_bm, verts=shape_verts, matrix=matrix_translation*matrix_rotation)
             elif self.shape == "PATTERN":
-                if len(object.perfect_pattern) == 0:
+                if len(object.perfect_pattern.vertices) == 0:
                     self.report({'WARNING'}, "Empty Pattern Data.")
                     del shape_bm
                     return {'FINISHED'}
-                if len(object.perfect_pattern) != len(loop_verts):
+                if len(object.perfect_pattern.vertices) != len(loop_verts):
                     self.report({'WARNING'}, "Pattern and loop vertices count must be the same.")
                     del shape_bm
                     return {'FINISHED'}
-                for pattern_vert in object.perfect_pattern:
+                for pattern_vert in object.perfect_pattern.vertices:
                     shape_bm.verts.new(Vector(pattern_vert.co))
                 shape_verts = shape_bm.verts[:]
                 bmesh.ops.scale(shape_bm, vec=Vector((1, 1, 1))*(1+self.offset), verts=shape_verts)
@@ -231,8 +200,12 @@ class PerfectShape(bpy.types.Operator, PerfectShapeUI):
                     shape_object = bpy.data.objects[self.target]
                     shape_bm.from_object(shape_object, context.scene)
                     loops = prepare_loops(shape_bm.edges[:])
-                    if loops is None or len(loops) > 1:
+                    if not loops or len(loops) > 1:
                         self.report({'WARNING'}, "Wrong mesh data.")
+                        del shape_bm
+                        return {'FINISHED'}
+                    if len(loops[0][0][0]) != len(loop_verts):
+                        self.report({'WARNING'}, "Shape and loop vertices count must be the same.")
                         del shape_bm
                         return {'FINISHED'}
 
@@ -284,7 +257,7 @@ class PerfectShape(bpy.types.Operator, PerfectShapeUI):
                             shape_vert.co = ray_cast_data[0]
 
                 for idx, vert in enumerate(loop_verts):
-                    vert.co = vert.co.lerp(shape_verts[idx].co, self.factor)
+                    vert.co = vert.co.lerp(shape_verts[idx].co, self.factor/100)
 
                 if not is_loop_boundary and is_loop_cyclic:
                     object_bm.select_flush_mode()
@@ -346,12 +319,13 @@ class PerfectShape(bpy.types.Operator, PerfectShapeUI):
                         inset_faces = [bmesh.utils.face_join(inset_faces)]
 
                     if self.fill_flatten and self.extrude == 0:
-                        verts = list(set(reduce(lambda v1, v2: list(v1) + list(v2),
-                                                [v.verts for v in inset_region_faces + inset_faces])))
-                        matrix = Matrix.Translation(-center)
-                        bmesh.ops.rotate(object_bm, cent=center, matrix=matrix_rotation.transposed(), verts=verts)
-                        bmesh.ops.scale(object_bm, vec=Vector((1, 1, +0)), space=matrix, verts=verts)
-                        bmesh.ops.rotate(object_bm, cent=center, matrix=matrix_rotation, verts=verts)
+                        if len(inset_region_faces + inset_faces) > 0:
+                            verts = list(set(reduce(lambda v1, v2: list(v1) + list(v2),
+                                                    [v.verts for v in inset_region_faces + inset_faces])))
+                            matrix = Matrix.Translation(-center)
+                            bmesh.ops.rotate(object_bm, cent=center, matrix=matrix_rotation.transposed(), verts=verts)
+                            bmesh.ops.scale(object_bm, vec=Vector((1, 1, +0)), space=matrix, verts=verts)
+                            bmesh.ops.rotate(object_bm, cent=center, matrix=matrix_rotation, verts=verts)
 
                     bmesh.ops.recalc_face_normals(object_bm, faces=outset_region_faces+inset_region_faces+inset_faces)
                     if self.extrude != 0:
@@ -377,7 +351,9 @@ class PerfectShape(bpy.types.Operator, PerfectShapeUI):
 
     def invoke(self, context, event):
         wm = context.window_manager
+        generate_icons()
         ret = self.execute(context)
+        generate_icons()  # ugh
         if ret == {'FINISHED'}:
             wm.invoke_props_popup(self, event)
         return ret
@@ -386,6 +362,7 @@ class PerfectShape(bpy.types.Operator, PerfectShapeUI):
 def register():
     bpy.utils.register_class(PerfectShape)
     bpy.utils.register_class(PerfectPattern)
+
 
 def unregister():
     bpy.utils.unregister_class(PerfectPattern)

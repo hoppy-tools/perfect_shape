@@ -1,5 +1,7 @@
 import bpy
 
+from perfect_shape.properties import PerfectShape
+
 
 class PerfectShapePanel(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
@@ -16,27 +18,45 @@ class PerfectShapePanel(bpy.types.Panel):
         col.operator("mesh.perfect_pattern")
 
 
-class PerfectShapeUI:
+class PerfectShapeUI(PerfectShape):
     def draw(self, context):
         layout = self.layout
 
-        col = layout.column(align=True)
-        col.label("A perfect")
-        col.prop(self, "shape", text="")
-
-        if self.shape in ["OBJECT", "PATTERN"]:
-            col.label("Object and Pattern shapes are in beta.", icon="ERROR")
+        split = layout.split(align=True)
+        col = split.column(align=True)
+        col.template_icon_view(self, "shape", show_labels=True)
+        col = split.column(align=True)
+        sub = col.column()
+        sub.enabled = False
+        sub.label("Mode:")
+        sub.prop(self, "mode", text="")
+        row = col.row()
+        row.label("Fill Type:")
+        row.prop(self, "fill_flatten")
+        col.prop(self, "fill_type", text="")
+        row = col.row(align=True)
+        row.label("Influence:")
+        row.label("Offset:")
+        row = col.row(align=True)
+        row.prop(self, "factor", text="")
+        row.prop(self, "offset", text="")
 
         if self.shape == "RECTANGLE":
-            col.label("Sides Ratio")
+            col = layout.column(align=True)
+            col.label("Rectangle Sides Ratio")
             row = col.row(align=True)
             row.prop(self, "ratio_a", text="a")
             row.prop(self, "ratio_b", text="b")
             row.prop(self, "is_square", toggle=True)
-
         elif self.shape == "OBJECT":
-            col.label("Object")
-            col.prop(self, "target", text="")
+            col = layout.column()
+            col.prop_search(self, "target", context.window_manager.perfect_shape, "objects", icon="OBJECT_DATAMODE")
+
+        col = layout.column(align=True)
+        row = col.row(align=True)
+        row.prop(self, "active_as_first")
+        row.prop(self, "shape_rotation")
+
 
         col = layout.column(align=True)
         col.label("Projection")
@@ -47,51 +67,19 @@ class PerfectShapeUI:
         row.prop(self, "use_ray_cast", toggle=True)
 
         col = layout.column(align=True)
-        row = col.row(align=True)
-        row.prop(self, "active_as_first")
-        row.prop(self, "shape_rotation")
+        col.label("Topology")
 
-        col = layout.column(align=True)
-        row = col.row()
-        row.label("Fill Type")
-        sub = row.row()
-        sub.alignment = "RIGHT"
-        sub.prop(self, "fill_flatten")
-        col.prop(self, "fill_type", text="")
-
-        col = layout.column(align=True)
-        col.label("Factor")
-        col.prop(self, "factor", text="", slider=True)
-
-        col = layout.column(align=True)
-        col.label("Offset")
-        col.prop(self, "offset", text="")
-
-        col = layout.column(align=True)
         row = col.row(align=True)
-        row.label("Shift")
-        row.label("Rotation")
-        row.label("Span")
-        row = col.row(align=True)
-        row.prop(self, "shift", text="")
-        row.prop(self, "rotation", text="")
-        row.prop(self, "span", text="")
-
-        col = layout.column(align=True)
-        row = col.row(align=True)
-        row.label("Inset")
-        row.label("Outset")
-        row.separator()
-        #row.label("Relax")
-        row = col.row(align=True)
-        row.prop(self, "inset", text="")
-        row.prop(self, "outset", text="")
-        row.separator()
-        #row.prop(self, "relax", text="")
+        row.prop(self, "shift")
+        row.prop(self, "rotation")
+        row.prop(self, "span")
 
         col = layout.column(align=True)
         col.label("Extrude")
-        col.prop(self, "extrude", text="")
+        row = col.row(align=True)
+        row.prop(self, "extrude", text="Value")
+        row.prop(self, "inset")
+        row.prop(self, "outset")
 
 
 def perfect_shape_menu(self, context):
