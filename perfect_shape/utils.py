@@ -1,68 +1,40 @@
 import bpy
 import bpy.utils.previews
 from bpy.app.handlers import persistent
+import math
+from mathutils import Vector
 import time
 
 
-def find_loop(edges, vert=None):
-    if vert is None:
-        edge = edges[0]
-        edges.remove(edge)
-        success_0, is_boundary_0, verts_0, edges_0 = find_loop(edges, edge.verts[0])
-        success_1, is_boundary_1, verts_1, edges_1 = find_loop(edges, edge.verts[1])
-        if len(verts_0) > 0:
-            edges_0.reverse()
-            verts_0.reverse()
-            verts_0 = verts_0 + [v for v in edge.verts if v not in verts_0]
-        if len(verts_1) > 0:
-            if len(verts_0) == 0:
-                verts_1 = verts_1 + [v for v in edge.verts if v not in verts_1]
-        is_boundary = is_boundary_0 and is_boundary_1
-        success = success_0 and success_1
-        if edge.is_boundary:
-            is_boundary = True
-        return success, is_boundary, verts_0 + verts_1, edges_0 + [edge] + edges_1
+class CacheException(Exception):
+    pass
 
-    link_edges = [e for e in vert.link_edges if e in edges]
-
-    if len(link_edges) == 1:
-        edge = link_edges[0]
-        vert, = set(edge.verts) - {vert}
-        edges.remove(edge)
-        success, is_boundary, verts_, edges_ = find_loop(edges, vert)
-        if edge.is_boundary:
-            is_boundary = True
-        return success, is_boundary, [vert] + verts_, [edge] + edges_
-
-    elif len(link_edges) > 1:
-        edges.clear()
-        return False, False, [], []
-
-    return True, False, [], []
+cache = {}
 
 
-def prepare_loops(edges):
-    edges = edges[:]
-    loops = []
-
-    while len(edges) > 0:
-        success, is_boundary, loop_verts, loop_edges = find_loop(edges)
-        if not success:
-            return None
-        if len(loop_verts) < 2:
-            is_cyclic = False
-        else:
-            is_cyclic = any([v for v in loop_edges[0].verts if v in loop_edges[-1].verts])
-        loops.append(((loop_verts, loop_edges), is_cyclic, is_boundary))
-
-    return loops
+def get_cache(op_pointer, key):
+    if op_pointer not in cache.keys():
+        raise CacheException("No operator cache")
+    if key not in cache[op_pointer].keys():
+        raise CacheException("No key cache")
+    return cache[op_pointer][key]
 
 
-def is_clockwise(forward, center, verts):
-    clockwise = forward.dot((verts[0].co - center).cross(verts[1].co - center))
-    if clockwise > 0:
-        return True
-    return False
+def set_cache(op_pointer, key, value):
+    if op_pointer not in cache.keys():
+        if len(cache) > 0:
+            cache.clear()
+        cache[op_pointer] = {}
+    cache[op_pointer][key] = value
+
+
+def clear_cache(op_pointer=None, key=None):
+    if op_pointer or key is None:
+        cache.clear()
+    else:
+        if op_pointer in cache:
+            if key in op_pointer:
+                del cache[op_pointer][key]
 
 
 def select_only(bm, geom, mode={"VERT"}):
@@ -82,9 +54,13 @@ def refresh_icons():
     update_time = time.time()
 
 
-def get_icon(name):
-    pcoll = preview_collections["shape_types"]
+def get_icon(name, coll="shape_types"):
+    pcoll = preview_collections[coll]
     preview = pcoll.get(name)
+    if preview is None:
+        preview = pcoll.new(name)
+        preview.image_size = (200, 200)
+
     return preview.icon_id
 
 
@@ -93,10 +69,8 @@ draw = False
 
 
 def generate_icons():
-    import math
-    from mathutils import Vector
     wm = bpy.context.window_manager
-    verts_count = wm.perfect_shape.preview_verts_count
+    verts_count = bpy.context.scene.perfect_shape.preview_verts_count
 
     verts = []
     for i in range(verts_count):
@@ -148,8 +122,8 @@ def generate_icons():
     suzanne_faces = [[3, 1, 9], [0, 9, 1], [3, 7, 4], [1, 3, 2], [22, 21, 23], [19, 18, 20], [21, 15, 23], [4, 6, 5],
                      [23, 15, 0], [18, 17, 20], [16, 21, 17], [12, 14, 13], [15, 21, 16], [11, 10, 12], [17, 21, 20],
                      [12, 10, 14], [7, 3, 8], [10, 15, 14], [6, 4, 7], [9, 15, 10], [15, 9, 0], [3, 9, 8]]
-    object_verts = bpy.context.window_manager.perfect_shape.shape.vertices
-    object_faces = bpy.context.window_manager.perfect_shape.shape.faces
+    object_verts = bpy.context.scene.perfect_shape.shape.verts
+    object_faces = bpy.context.scene.perfect_shape.shape.faces
     if len(object_verts) == 0:
         generate_icon("object", suzanne, suzanne_faces)
     else:
@@ -163,27 +137,30 @@ def generate_icons():
         scale = 0.9 / length
         generate_icon("object", [v*scale for v in verts], [f.indices for f in object_faces])
 
-    pattern_verts = bpy.context.object.perfect_pattern.vertices
-    pattern_faces = bpy.context.object.perfect_pattern.faces
-    verts = []
-    if pattern_verts:
-        length = 0
-        for vert in pattern_verts:
-            v = Vector(vert.co[:2])
-            verts.append(v)
-            if v.length > length:
-                length = v.length
-        scale = 0.9 / length
-        generate_icon("pattern", [v*scale for v in verts], [f.indices for f in pattern_faces])
+
+def generate_patterns_icons():
+    pcoll = preview_collections["patterns"]
+    patterns = bpy.context.scene.perfect_shape.patterns
+    for idx, pattern in enumerate(patterns):
+        if str(idx) not in pcoll:
+            verts= []
+            length = 0
+            for vert in pattern.verts:
+                v = Vector(vert.co[:2])
+                verts.append(v)
+                if v.length > length:
+                    length = v.length
+            scale = 0.9 / length
+            generate_icon(str(idx), [v*scale for v in verts], [f.indices for f in pattern.faces], "patterns")
 
 
-def generate_icon(name, verts=None, faces=None):
-    pcoll = preview_collections["shape_types"]
+def generate_icon(name, verts=None, faces=None, coll="shape_types"):
+    pcoll = preview_collections[coll]
     if name in pcoll:
         thumb = pcoll.get(name)
     else:
         thumb = pcoll.new(name)
-    thumb.image_size = (200, 200)
+        thumb.image_size = (200, 200)
 
     if verts is not None:
         import bgl
@@ -278,10 +255,18 @@ def handler(scene):
                 draw = False
 
 
+@persistent
+def load_handler(scene):
+    for pcoll in preview_collections.values():
+        pcoll.clear()
+        generate_patterns_icons()
+
+
 def register():
-    pcoll = bpy.utils.previews.new()
-    preview_collections["shape_types"] = pcoll
+    preview_collections["shape_types"] = bpy.utils.previews.new()
+    preview_collections["patterns"] = bpy.utils.previews.new()
     bpy.app.handlers.scene_update_post.append(handler)
+    bpy.app.handlers.load_post.append(load_handler)
 
 
 def unregister():
@@ -289,3 +274,4 @@ def unregister():
         bpy.utils.previews.remove(pcoll)
     preview_collections.clear()
     bpy.app.handlers.scene_update_post.remove(handler)
+    bpy.app.handlers.load_post.remove(load_handler)

@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Perfect Shape",
     "author": "Dawid Czech",
-    "version": (1, 2),
+    "version": (1, 3),
     "blender": (2, 76, 0),
     "wiki_url": "http://hophead.ninja/product/perfect_shape",
     "category": "Mesh"
