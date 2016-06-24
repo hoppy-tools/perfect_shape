@@ -66,6 +66,12 @@ class PerfectShape:
                                          ("INDENT", "Indent", "Indent amd reshape edges or faces", "", 1)],
                                   default="RESHAPE")
 
+    active_tab = bpy.props.EnumProperty(name="Active Tab",
+                                  items=[("POSITIONING", "Positioning", "", "", 0),
+                                         ("SHAPING", "Shaping", "", "", 1),
+                                         ("SELECTION", "Selection", "", "", 2)],
+                                  default="POSITIONING")
+
     shape = bpy.props.EnumProperty(name="A perfect", items=enum_shape_types, update=shape_update)
     fill_type = bpy.props.EnumProperty(name="Fill Type",
                                        items=[("ORIGINAL", "Original", "", "", 0),
@@ -85,7 +91,7 @@ class PerfectShape:
     use_ray_cast = bpy.props.BoolProperty(name="Wrap to surface", default=False, description="Cast shape to base mesh")
     fill_flatten = bpy.props.BoolProperty(name="Flatten", default=False, description="Flatten loop-inside geometry")
 
-    loop_rotation = bpy.props.BoolProperty(name="Loop Rotation", default=True, description="Apply loop rotation")
+    loop_rotation = bpy.props.BoolProperty(name="Loop Rotation", default=False, description="Apply loop rotation")
     shape_rotation = bpy.props.BoolProperty(name="Shape Rotation", default=False,
                                             description="Apply shape rotation")
 
@@ -116,9 +122,13 @@ class PerfectShape:
     extrude = bpy.props.FloatProperty(name="Extrude", default=0, precision=3, description="Extrude value.")
     cuts = bpy.props.IntProperty(name="Cuts", min=0, max=100, default=0, description="Number of side cuts")
     cuts_len = bpy.props.IntProperty(name="Cuts Length", min=1, default=1, description="Number of edges to cut")
-    cuts_repeat = bpy.props.IntProperty(name="Cuts Repeat", min=1, max=100, default=1, description="Number of cut repeats")
+    cuts_repeat = bpy.props.IntProperty(name="Cuts Repeat", min=1, max=100, default=1,
+                                        description="Number of cut repeats")
     cuts_shift = bpy.props.IntProperty(name="Shift", default=0, description="Changes the order of cuts")
     cuts_rings = bpy.props.IntProperty(name="Rings", min=0, max=100, default=0, description="Number of side rings")
+
+    pivot_point = bpy.props.StringProperty()
+    transform_orientation = bpy.props.StringProperty()
 
 
 class Vert(bpy.types.PropertyGroup):

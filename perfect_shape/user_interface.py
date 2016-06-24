@@ -1,5 +1,4 @@
 import bpy
-
 from perfect_shape.properties import PerfectShape
 
 
@@ -44,7 +43,7 @@ class PerfectShapeUI(PerfectShape):
         col.template_icon_view(self, "shape", show_labels=True)
         col = split.column(align=True)
         sub = col.column()
-        #sub.enabled = False
+        # sub.enabled = False
         sub.label("Mode:")
         sub.prop(self, "mode", text="")
         row = col.row()
@@ -73,45 +72,64 @@ class PerfectShapeUI(PerfectShape):
             row.prop(self, "is_square", toggle=True)
         elif self.shape == "OBJECT":
             row.label("Object:")
+            split = col.split(percentage=0.68, align=True)
+            split.prop_search(self, "target", context.scene.perfect_shape, "objects", icon="OBJECT_DATAMODE", text="")
+            if self.target:
+                split.operator("mesh.perfect_shape", text="Edit")
+            else:
+                split.operator("mesh.perfect_shape", text="Create")
+        col.separator()
+
+        col = layout.column(align=True)
+        row = col.row(align=True)
+        row.prop(self, "active_tab", expand=True)
+        box = col.box()
+
+        if self.active_tab == "POSITIONING":
+            col = box.column(align=True)
             row = col.row(align=True)
-            row.prop_search(self, "target", context.scene.perfect_shape, "objects", icon="OBJECT_DATAMODE", text="")
+            row.prop(self, "shape_translation", text="")
 
-        col = layout.column(align=True)
-        col.label("Projection:")
-        row = col.row(align=True)
-        row.prop(self, "projection", expand=True)
-        row = col.row(align=True)
-        row.prop(self, "invert_projection", toggle=True)
-        row.prop(self, "use_ray_cast", toggle=True)
+            col = box.column(align=True)
+            row = col.row(align=True)
+            row.prop(self, "rotation")
+            row.prop(self, "shift")
+            row.prop(self, "loop_rotation", text="Loop", toggle=True)
+            row.prop(self, "shape_rotation", text="Shape", toggle=True)
 
-        col = layout.column(align=True)
-        col.label("Position and Rotation:")
-        row = col.row(align=True)
-        row.prop(self, "shift")
-        row.prop(self, "rotation")
-        row.prop(self, "loop_rotation", text="Loop", toggle=True)
-        row.prop(self, "shape_rotation", text="Shape", toggle=True)
+            col = box.column(align=True)
+            row = col.row(align=True)
+            row.prop(self, "projection", expand=True)
+            row = col.row(align=True)
+            row.prop(self, "invert_projection", toggle=True)
+            row.prop(self, "use_ray_cast", toggle=True)
 
-        row = col.row(align=True)
-        row.prop(self, "shape_translation", text="")
+        elif self.active_tab == "SHAPING":
+            col = box.column(align=True)
 
-        col = layout.column(align=True)
-        col.label("Extrude:")
-        row = col.row(align=True)
-        row.prop(self, "extrude", text="Value")
-        row.prop(self, "side_inset")
-        row = col.row(align=True)
-        row.prop(self, "inset")
-        row.prop(self, "outset")
+            col.prop(self, "extrude", text="Extrude Value")
+            col = box.column(align=True)
+            if self.extrude == 0:
+                col.enabled = False
 
-        col = layout.column(align=True)
-        row = col.row(align=True)
-        row.prop(self, "cuts_rings")
-        row.prop(self, "cuts")
-        row = col.row(align=True)
-        row.prop(self, "cuts_shift", text="Shift")
-        row.prop(self, "cuts_len", text="Length")
-        row.prop(self, "cuts_repeat", text="Repeats")
+            col.prop(self, "side_inset", text="Side Faces Inset")
+            col.prop(self, "cuts_rings")
+            col.prop(self, "cuts")
+            row = col.row(align=True)
+            if self.cuts == 0:
+                row.enabled = False
+            row.prop(self, "cuts_shift", text="Shift")
+            row.prop(self, "cuts_len", text="Length")
+            row.prop(self, "cuts_repeat", text="Repeats")
+
+            col = box.column(align=True)
+            col.prop(self, "inset")
+            col.prop(self, "outset")
+
+        if context.space_data and (self.pivot_point != context.space_data.pivot_point or
+                                   self.transform_orientation != context.space_data.transform_orientation):
+            col = layout.column()
+            col.operator("mesh.perfect_pattern_update")
 
 
 def perfect_shape_menu(self, context):

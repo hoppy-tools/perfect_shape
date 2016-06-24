@@ -18,7 +18,7 @@ class PerfectPatternAdd(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.mode == "EDIT_MESH" and context.space_data.type == "VIEW_3D" and context.object is not None
+        return context.mode == "EDIT_MESH" and context.area.type == "VIEW_3D" and context.object is not None
 
     def execute(self, context):
         object = context.object
@@ -58,10 +58,6 @@ class PerfectPatternAdd(bpy.types.Operator):
 
         center = shape_bm.faces[0].calc_center_median()
 
-        bounds = shape_bm.faces[0].calc_center_bounds()
-        dist = bounds.length - center.length
-
-        # center = center + (bounds-center).normalized() * dist
         bmesh.ops.triangulate(shape_bm, faces=shape_bm.faces[:])
 
         forward = calculate_normal([v.co for v in loop_verts])
@@ -96,7 +92,7 @@ class PerfectPatternRemove(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.mode == "EDIT_MESH" and context.space_data.type == "VIEW_3D" and context.object is not None
+        return context.mode == "EDIT_MESH" and context.area.type == "VIEW_3D" and context.object is not None
 
     def execute(self, context):
         pcoll = preview_collections["patterns"]
@@ -119,7 +115,7 @@ class PerfectPatternRemove(bpy.types.Operator):
 class PerfectShape(bpy.types.Operator, PerfectShapeUI):
     @classmethod
     def poll(cls, context):
-        return context.mode == "EDIT_MESH" and context.space_data.type == "VIEW_3D" and context.object is not None
+        return context.mode == "EDIT_MESH" and context.area.type == "VIEW_3D" and context.object is not None
 
     def check(self, context):
         return True
@@ -127,6 +123,9 @@ class PerfectShape(bpy.types.Operator, PerfectShapeUI):
     def execute(self, context):
         object = context.object
         object.update_from_editmode()
+
+        self.pivot_point = context.space_data.pivot_point
+        self.transform_orientation = context.space_data.transform_orientation
 
         object_bm = bmesh.from_edit_mesh(object.data)
         object_bm.verts.ensure_lookup_table()
@@ -136,8 +135,6 @@ class PerfectShape(bpy.types.Operator, PerfectShapeUI):
         selected_faces = [f for f in object_bm.faces if f.select]
         selected_edges = [e for e in object_bm.edges if e.select]
         selected_verts = [v for v in object_bm.verts if v.select]
-
-        selection_center = Vector()
 
         if len(selected_edges) == 0:
             self.report({'WARNING'}, "Please select edges.")
@@ -162,6 +159,7 @@ class PerfectShape(bpy.types.Operator, PerfectShapeUI):
             self.report({'WARNING'}, "Please select boundary loop(s) of selected area(s).")
             return {'CANCELLED'}
 
+        selection_center = Vector()
         for vert in selected_verts:
             selection_center += vert.co
         selection_center /= len(selected_verts)
@@ -188,6 +186,7 @@ class PerfectShape(bpy.types.Operator, PerfectShapeUI):
                 shape_verts = shape_bm.verts[:]
                 shape_bm.edges.new((shape_verts[-1], shape_verts[0]))
                 shape_edges = shape_bm.edges[:]
+
             except CacheException:
                 if self.shape == "CIRCLE":
                     a = sum([e.calc_length() for e in loop_edges]) / loop_verts_len
@@ -196,6 +195,7 @@ class PerfectShape(bpy.types.Operator, PerfectShapeUI):
                     shape_verts = bmesh.ops.create_circle(shape_bm, segments=shape_segments, diameter=diameter)
                     shape_verts = shape_verts["verts"]
                     shape_edges = shape_bm.edges[:]
+
                 elif self.shape == "RECTANGLE":
                     if loop_verts_len % 2 > 0:
                         self.report({'WARNING'}, "An odd number of edges.")
@@ -231,6 +231,7 @@ class PerfectShape(bpy.types.Operator, PerfectShapeUI):
                     for i in range(len(shape_verts)):
                         shape_bm.edges.new((shape_verts[i], shape_verts[(i + 1) % len(shape_verts)]))
                     shape_edges = shape_bm.edges[:]
+
                 elif self.shape == "PATTERN":
                     pattern_idx = context.scene.perfect_shape.active_pattern
                     pattern = context.scene.perfect_shape.patterns[int(pattern_idx)]
@@ -248,6 +249,7 @@ class PerfectShape(bpy.types.Operator, PerfectShapeUI):
                     for i in range(len(shape_verts)):
                         shape_bm.edges.new((shape_verts[i], shape_verts[(i + 1) % len(shape_verts)]))
                     shape_edges = shape_bm.edges[:]
+
                 elif self.shape == "OBJECT":
                     if self.target in bpy.data.objects:
                         shape_object = bpy.data.objects[self.target]
@@ -267,38 +269,65 @@ class PerfectShape(bpy.types.Operator, PerfectShapeUI):
                 if shape_verts:
                     set_cache(self.as_pointer(), "shape_verts_{}".format(loop_idx), [v.co.copy() for v in shape_verts])
 
-            if shape_verts is not None and len(shape_verts) > 0:
-                if context.space_data.pivot_point == "CURSOR":
-                    center = object.matrix_world.copy() * context.scene.cursor_location.copy()
-                else:
-                    temp_bm = bmesh.new()
-                    for loop_vert in loop_verts:
-                        temp_bm.verts.new(loop_vert.co.copy())
-                    temp_verts = temp_bm.verts[:]
-                    for i in range(len(temp_verts)):
-                        temp_bm.edges.new((temp_verts[i], temp_verts[(i + 1) % len(temp_verts)]))
-                    temp_bm.faces.new(temp_bm.verts)
-                    temp_bm.faces.ensure_lookup_table()
-                    if context.space_data.pivot_point == 'BOUNDING_BOX_CENTER':
-                        center = temp_bm.faces[0].calc_center_bounds()
-                    else:
-                        center = temp_bm.faces[0].calc_center_median()
-                    del temp_bm
-
+            if shape_verts:
                 context.scene.perfect_shape.preview_verts_count = loop_verts_len + self.span
+
+                try:
+                    center = get_cache(self.as_pointer(), "P_{}_{}".format(self.pivot_point, loop_idx))
+
+                except CacheException:
+                    if self.pivot_point == "CURSOR":
+                        center = object.matrix_world.copy() * context.scene.cursor_location.copy()
+                    else:
+                        temp_bm = bmesh.new()
+                        for loop_vert in loop_verts:
+                            temp_bm.verts.new(loop_vert.co.copy())
+                        temp_verts = temp_bm.verts[:]
+                        for i in range(len(temp_verts)):
+                            temp_bm.edges.new((temp_verts[i], temp_verts[(i + 1) % len(temp_verts)]))
+                        temp_bm.faces.new(temp_bm.verts)
+                        temp_bm.faces.ensure_lookup_table()
+                        if context.space_data.pivot_point == 'BOUNDING_BOX_CENTER':
+                            center = temp_bm.faces[0].calc_center_bounds()
+                        else:
+                            center = temp_bm.faces[0].calc_center_median()
+                        del temp_bm
+                    set_cache(self.as_pointer(), "P_{}_{}".format(self.pivot_point, loop_idx), center)
+
                 if self.projection == "NORMAL":
                     forward = calculate_normal([v.co.copy() for v in loop_verts])
                     normal_forward = reduce(
                         lambda v1, v2: v1.normal.copy() + v2.normal.copy() if isinstance(v1, bmesh.types.BMVert)
                         else v1.copy() + v2.normal.copy(), loop_verts).normalized()
-
-                    if normal_forward.angle(forward) - math.pi / 2 > 1e-6:
+                    if forward.angle(normal_forward) - math.pi / 2 >= 1e-6:
                         forward.negate()
                 else:
                     forward = Vector([v == self.projection for v in ["X", "Y", "Z"]])
 
                 if self.invert_projection:
                     forward.negate()
+
+
+                rotation_m = 1
+                if context.space_data.pivot_point != "INDIVIDUAL_ORIGINS":
+
+                    if (center+selection_center).dot(forward) > 0:
+                        rotation_m = -1
+                    # if center.cross(forward).angle(selection_center) >= math.pi / 2:
+                    #     forward.negate()
+
+                    # if cross.dot(center) < 0:
+                    #     forward.negate()
+                    # if(center + selection_center).dot(forward) < 0:
+                    #     forward.negate()
+                    # matrix_rotation = forward.to_track_quat('Z', 'Y').to_matrix().to_4x4()
+                    # if (matrix_rotation * center).dot(matrix_rotation * (center + selection_center)) > 0:
+                    #     forward.negate()
+                    #     if loop_faces:
+                    #         rotation_m = - 1
+                if not is_clockwise(forward, center, loop_verts):
+                    loop_verts.reverse()
+                    loop_edges.reverse()
 
                 matrix_rotation = forward.to_track_quat('Z', 'Y').to_matrix().to_4x4()
                 matrix_translation = Matrix.Translation(center)
@@ -307,56 +336,35 @@ class PerfectShape(bpy.types.Operator, PerfectShapeUI):
 
                 bmesh.ops.transform(shape_bm, verts=shape_verts, matrix=matrix_translation * matrix_rotation)
 
-                if not is_clockwise(forward, center, loop_verts):
-                    loop_verts.reverse()
-                    loop_edges.reverse()
+                loop_verts_co_2d = [(v.co * matrix_rotation).to_2d() for v in loop_verts]
+                shape_verts_co_2d = [(v.co * matrix_rotation).to_2d() for v in shape_verts]
 
-                if not is_clockwise(forward, center, shape_verts):
-                    shape_verts.reverse()
-
-                correct_angle_m = 1
-                shift_m = 1
-
-                if context.space_data.pivot_point != "INDIVIDUAL_ORIGINS":
-                    if selection_center.dot(center.cross(forward)) >= 0:
-                        # if    (center.cross(forward)).angle(selection_center) - math.pi/2 <= 1e-6:
-                        correct_angle_m = -1
-                        shift_m = -1
-
-                loop_verts_co_2d, shape_verts_co_2d = None, None
-                if loop_verts_co_2d is None:
-                    loop_verts_co_2d = [(matrix_rotation.transposed() * v.co).to_2d() for v in loop_verts]
-                    shape_verts_co_2d = [(matrix_rotation.transposed() * v.co).to_2d() for v in shape_verts]
                 loop_angle = box_fit_2d(loop_verts_co_2d)
                 shape_angle = box_fit_2d(shape_verts_co_2d)
-                # if round(loop_angle, 4) == round(math.pi, 4):
-                #     loop_angle = 0
 
                 correct_angle = 0
                 if self.loop_rotation:
-                    correct_angle = loop_angle * correct_angle_m
-                    if round(loop_angle, 3) == round(shape_angle, 3):
-                        correct_angle -= shape_angle
+                    correct_angle = loop_angle
 
                 if self.shape_rotation:
-                    correct_angle -= shape_angle
+                    correct_angle += shape_angle
 
                 if correct_angle != 0:
                     bmesh.ops.rotate(shape_bm, verts=shape_verts, cent=center,
-                                     matrix=Matrix.Rotation(-correct_angle * correct_angle_m, 3, forward))
+                                     matrix=Matrix.Rotation(-correct_angle, 3, forward))
 
                 kd_tree = mathutils.kdtree.KDTree(len(loop_verts))
                 for idx, loop_vert in enumerate(loop_verts):
                     kd_tree.insert(loop_vert.co, idx)
                 kd_tree.balance()
                 shape_first_idx = kd_tree.find(shape_verts[0].co)[1]
-                shift = shape_first_idx + self.shift * shift_m
+                shift = shape_first_idx + self.shift
                 if shift != 0:
                     loop_verts = loop_verts[shift % len(loop_verts):] + loop_verts[:shift % len(loop_verts)]
 
                 if self.rotation != 0:
                     bmesh.ops.rotate(shape_bm, verts=shape_verts, cent=center,
-                                     matrix=Matrix.Rotation(-self.rotation * correct_angle_m, 3, forward))
+                                     matrix=Matrix.Rotation(-self.rotation*rotation_m, 3, forward))
 
                 bmesh.ops.translate(shape_bm, vec=self.shape_translation, verts=shape_bm.verts)
                 center = Matrix.Translation(self.shape_translation) * center
@@ -550,6 +558,9 @@ class PerfectShape(bpy.types.Operator, PerfectShapeUI):
                         elif self.fill_type == "NGON":
                             bmesh.utils.face_join(faces)
 
+            if not selected_faces and self.extrude != 0:
+                self.report({'WARNING'}, "Please select faces to extrude.")
+
             shape_bm.clear()
 
         del object_bvh
@@ -559,6 +570,7 @@ class PerfectShape(bpy.types.Operator, PerfectShapeUI):
 
     def invoke(self, context, event):
         wm = context.window_manager
+        clear_cache()
         ret = self.execute(context)
         generate_icons()
         generate_patterns_icons()
@@ -567,13 +579,31 @@ class PerfectShape(bpy.types.Operator, PerfectShapeUI):
         return ret
 
 
+class PerfectPatternUpdate(bpy.types.Operator):
+    bl_idname = "mesh.perfect_pattern_update"
+    bl_label = "Update"
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == "EDIT_MESH" and context.area.type == "VIEW_3D" and context.object is not None
+
+    def execute(self, context):
+        ops = context.window_manager.operators
+        if ops:
+            if ops[-1].bl_idname == 'MESH_OT_perfect_shape':
+                ops[-1].execute(context)
+        return {'FINISHED'}
+
+
 def register():
     bpy.utils.register_class(PerfectShape)
     bpy.utils.register_class(PerfectPatternAdd)
     bpy.utils.register_class(PerfectPatternRemove)
+    bpy.utils.register_class(PerfectPatternUpdate)
 
 
 def unregister():
     bpy.utils.unregister_class(PerfectPatternAdd)
     bpy.utils.unregister_class(PerfectPatternRemove)
     bpy.utils.unregister_class(PerfectShape)
+    bpy.utils.register_class(PerfectPatternUpdate)
