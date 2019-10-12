@@ -1,31 +1,13 @@
 bl_info = {
     "name": "Perfect Shape",
     "author": "Dawid Czech",
-    "version": (1, 3),
-    "blender": (2, 76, 0),
-    "wiki_url": "http://hophead.ninja/product/perfect_shape",
+    "version": (2, 0),
+    "blender": (2, 80, 0),
     "category": "Mesh"
 }
 
-import bpy
-from perfect_shape import properties
-from perfect_shape import operators
-from perfect_shape import user_interface
-from perfect_shape import utils
+from bpy import utils
 
+submodules = ['previews', 'properties', 'operators']
 
-def register():
-    properties.register()
-    operators.register()
-    user_interface.register()
-    utils.register()
-
-
-def unregister():
-    utils.unregister()
-    user_interface.unregister()
-    operators.unregister()
-    properties.unregister()
-
-if __name__ == "__main__":
-    register()
+register, unregister = utils.register_submodule_factory(__name__, submodules)
