@@ -143,12 +143,13 @@ def get_points_colors(points_count, original_count):
 
 
 def render(shape):
-    points = shape.points
-    points_original = shape.points_original
+    points = shape.get_points()
+    points_original = shape.get_points_original()
+    points_count = shape.get_points_count()
 
     point_batch = batch_for_shader(point_shader, 'POINTS',
                                    {"position": points,
-                                    "color": get_points_colors(shape.points_count, shape.points_count)})
+                                    "color": get_points_colors(points_count, points_count)})
     line_batch = batch_for_shader(line_shader, 'LINE_LOOP', {"position": points})
 
     original_point_batch = batch_for_shader(point_shader, 'POINTS',

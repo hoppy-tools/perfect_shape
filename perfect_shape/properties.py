@@ -5,7 +5,7 @@ import bpy
 from bpy.app import timers as bpy_timers
 from bpy.props import (EnumProperty, BoolProperty, IntProperty, FloatProperty, StringProperty)
 from .previews import get_shape_preview_icon_id
-from .shaper import generate_previews_shapes
+from .helpers import ShapeHelper
 
 previews_update_time = None
 previews_update_data = None
@@ -30,7 +30,7 @@ def trigger_update_previews(self, context):
         global previews_update_data
 
         if previews_update_time and time.time() - previews_update_time > 0.3:
-            generate_previews_shapes(*previews_update_data)
+            ShapeHelper.generate_shapes(*previews_update_data)
             previews_update_time = None
             previews_update_data = None
         else:
@@ -48,9 +48,9 @@ def get_mesh_object_poll(self, object):
     return object.type == 'MESH'
 
 
-def fit_shift(self, context):
+def get_best_shift(self, context):
     if self.shift_next_better:
-
+        self.shift = ShapeHelper.get_next_best_shift()
         self.shift_next_better = False
 
 
@@ -74,10 +74,11 @@ class ShaperProperties:
 
     span: IntProperty(name="Span", update=trigger_update_previews)
     shift: IntProperty(name="Shift", update=trigger_update_previews)
-    shift_next_better: BoolProperty(name="Next better shift", description="Next better shift", default=False, update=fit_shift)
+    shift_next_better: BoolProperty(name="Next better shift", description="Next better shift",
+                                    default=False, update=get_best_shift)
 
-    ratio_a: IntProperty(name="[a]", description="Side 'a' ratio", min=1, default=1, update=trigger_update_previews)
-    ratio_b: IntProperty(name="[b]", description="Side 'b' ratio", min=1, default=1, update=trigger_update_previews)
+    ratio_a: IntProperty(name="Ratio a", description="Side 'a' ratio", min=1, default=1, update=trigger_update_previews)
+    ratio_b: IntProperty(name="Ratio b", description="Side 'b' ratio", min=1, default=1, update=trigger_update_previews)
     is_square: BoolProperty(name="Is square", description="Square", default=False)
 
     scale: FloatProperty(name="Scale", default=1.0)
