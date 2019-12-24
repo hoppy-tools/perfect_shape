@@ -1,4 +1,6 @@
 import bpy
+from bpy.utils.toolsystem import ToolDef
+from .utils import get_icon
 
 
 class PerfectShapeUI:
@@ -55,6 +57,69 @@ class PerfectShapeUI:
         row.prop(self, 'projection_onto_self', text="", icon="MOD_SHRINKWRAP")
 
 
+@ToolDef.from_fn
+def perfect_shape_tool():
+    def draw_settings(context, layout, tool):
+        def _get_icon(value):
+            icon = "ops.generic.select_circle"
+            if value == "TRANSFORM":
+                icon = "ops.transform.transform"
+            return get_icon(icon)
+
+        reg = context.region.type
+        is_not_header = reg != 'TOOL_HEADER'
+        show_edit_props = context.window_manager.operators and \
+            context.window_manager.operators[-1].bl_idname == "PERFECT_SHAPE_OT_perfect_shape"
+        props = tool.operator_properties("perfect_shape.perfect_shape")
+        tool_settings = context.scene.perfect_shape_tool_settings
+
+        if show_edit_props:
+            row = layout.row(align=True)
+            if is_not_header:
+                row.scale_y = 1.8
+            row.prop(tool_settings, "action", text="" if is_not_header else None,
+                     icon_value=_get_icon(tool_settings.action) if is_not_header else 0)
+
+        if tool_settings.action == "NEW":
+            layout.prop(props, "shape_source")
+            layout.template_icon_view(props, "shape", show_labels=True, scale=8, scale_popup=6.0)
+
+    return dict(
+        idname="perfect_shape.perfect_shape_tool",
+        label="Perfect Shape",
+        description=(
+            "Extrude shape"
+        ),
+        icon="ops.generic.select_circle",
+        keymap="perfect_shape.select_and_shape",
+        draw_settings=draw_settings,
+    )
+
+
+def get_tool_list(space_type, context_mode):
+    from bl_ui.space_toolsystem_common import ToolSelectPanelHelper
+    cls = ToolSelectPanelHelper._tool_class_from_space_type(space_type)
+    return cls._tools[context_mode]
+
+
+def register_tool():
+    tools = get_tool_list('VIEW_3D', 'EDIT_MESH')
+    for index, tool in enumerate(tools, 1):
+        if isinstance(tool, ToolDef) and tool.label == "Perfect Shape":
+            break
+    tools[:index] += None, perfect_shape_tool
+    del tools
+
+
+def unregister_tool():
+    tools = get_tool_list('VIEW_3D', 'EDIT_MESH')
+    index = tools.index(perfect_shape_tool) - 1
+    tools.pop(index)
+    tools.remove(perfect_shape_tool)
+    del tools
+    del index
+
+
 def perfect_shape_menu(self, context):
     layout = self.layout
     layout.separator()
@@ -65,9 +130,11 @@ def register():
     bpy.types.VIEW3D_MT_edit_mesh_edges.append(perfect_shape_menu)
     bpy.types.VIEW3D_MT_edit_mesh_vertices.append(perfect_shape_menu)
     bpy.types.VIEW3D_MT_edit_mesh_faces.append(perfect_shape_menu)
+    register_tool()
 
 
 def unregister():
     bpy.types.VIEW3D_MT_edit_mesh_faces.remove(perfect_shape_menu)
     bpy.types.VIEW3D_MT_edit_mesh_vertices.remove(perfect_shape_menu)
     bpy.types.VIEW3D_MT_edit_mesh_edges.remove(perfect_shape_menu)
+    unregister_tool()

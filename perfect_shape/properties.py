@@ -6,6 +6,7 @@ from bpy.app import timers as bpy_timers
 from bpy.props import (EnumProperty, BoolProperty, IntProperty, FloatProperty, StringProperty)
 from .previews import get_shape_preview_icon_id
 from .helpers import ShapeHelper
+from .user_interface import perfect_shape_tool
 
 previews_update_time = None
 previews_update_data = None
@@ -56,8 +57,8 @@ def get_best_shift(self, context):
 
 class ShaperProperties:
     shape_source: EnumProperty(name="Shape Source",
-                               items=(("OBJECT", "Object", "Shape from object"),
-                                      ("GENERIC", "Generic", "Generic Shape"),
+                               items=(("GENERIC", "Generic", "Generic Shape"),
+                                      ("OBJECT", "Object", "Shape from object"),
                                       ("PATTERN", "Pattern", "Defined shape pattern")),
                                update=shape_source_update)
     shape: EnumProperty(name="Shape", items=enum_shape_types)
@@ -93,6 +94,26 @@ class ShaperProperties:
     projection_onto_self: BoolProperty(name="Projection onto Self", description="Wrap surface")
 
 
+def tool_actions_enum(self, context):
+    items = [["NEW", "New", "Set a new selection and apply Perfect Shape"],
+             ["EDIT_SELECTION", "Edit Selection", "Edit current selection and apply Perfect Shape"],
+             ["TRANSFORM", "Transform", "Transform Shape"]]
+
+    reg = context.region.type
+    if not reg == 'TOOL_HEADER':
+        for item in items:
+            item[1] = "    " + item[1]
+    return tuple(tuple(i) for i in items)
+
+
+def tool_actions_update():
+    perfect_shape_tool.keymap[0] = ""
+
+
+class PerfectShapeToolSettings(bpy.types.PropertyGroup):
+    action: EnumProperty(name="Action", items=tool_actions_enum)
+
+
 def register():
     global shapes_types_dict
     shapes_types_dict = {
@@ -100,6 +121,9 @@ def register():
                     ("RECTANGLE", "Rectangle", "Simple rectangle", get_shape_preview_icon_id("RECTANGLE"), 1)),
         "OBJECT": (("OBJECT", "Object", "Custom shape from object", get_shape_preview_icon_id("OBJECT"), 0),)
     }
+
+    bpy.utils.register_class(PerfectShapeToolSettings)
+    bpy.types.Scene.perfect_shape_tool_settings = bpy.props.PointerProperty(type=PerfectShapeToolSettings)
 
 
 def unregister():

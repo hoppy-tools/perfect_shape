@@ -1,15 +1,49 @@
+from builtins import print
+
+import bpy
 import bmesh
 
 from bpy.types import Operator
+from bpy.props import StringProperty
 
 from .properties import ShaperProperties
-from .user_interface import PerfectShapeUI
+from .user_interface import PerfectShapeUI, perfect_shape_tool
 from .helpers import ShapeHelper
 
 
-class PERFECT_SHAPE_OT_shaper(ShaperProperties, PerfectShapeUI, Operator):
+
+class PERFECT_SHAPE_OT_select_and_shape(Operator):
+    bl_label = "Select and Perfect Shape"
+    bl_idname = "perfect_shape.select_and_shape"
+
+    bl_options = {'INTERNAL'}
+
+    select = False
+
+    select_method: StringProperty(default='CIRCLE')
+    select_mode: StringProperty(default='SET')
+
+    def modal(self, context, event):
+        if not self.select:
+            self.select = True
+            bpy.ops.view3d.select_circle('INVOKE_DEFAULT', wait_for_input=False, mode=self.select_mode)
+        elif event.type in {'RIGHTMOUSE', 'ESC'}:
+            return {'CANCELLED'}
+        else:
+            bpy.ops.perfect_shape.perfect_shape('INVOKE_DEFAULT', True)
+            return {'FINISHED'}
+        return {'PASS_THROUGH'}
+
+    def invoke(self, context, event):
+        wm = context.window_manager
+        wm.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+
+
+class PERFECT_SHAPE_OT_perfect_shape(ShaperProperties, PerfectShapeUI, Operator):
     bl_label = "Perfect Shape"
-    bl_idname = "mesh.perfect_shape"
+    bl_idname = "perfect_shape.perfect_shape"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -36,7 +70,7 @@ class PERFECT_SHAPE_OT_shaper(ShaperProperties, PerfectShapeUI, Operator):
 
     def execute(self, context):
         self.update_shape_and_previews(self.shape)
-
+        context.scene.perfect_shape_tool_settings.action = "TRANSFORM"
         return {'FINISHED'}
 
     def invoke(self, context, event):
@@ -56,9 +90,12 @@ class PERFECT_SHAPE_OT_shaper(ShaperProperties, PerfectShapeUI, Operator):
 
 def register():
     from bpy.utils import register_class
-    register_class(PERFECT_SHAPE_OT_shaper)
+    register_class(PERFECT_SHAPE_OT_perfect_shape)
+    register_class(PERFECT_SHAPE_OT_select_and_shape)
 
 
 def unregister():
     from bpy.utils import unregister_class
-    unregister_class(PERFECT_SHAPE_OT_shaper)
+    unregister_class(PERFECT_SHAPE_OT_perfect_shape)
+    unregister_class(PERFECT_SHAPE_OT_select_and_shape)
+

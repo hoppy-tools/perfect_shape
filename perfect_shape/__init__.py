@@ -8,6 +8,6 @@ bl_info = {
 
 from bpy import utils
 
-submodules = ['previews', 'properties', 'operators', 'user_interface']
+submodules = ['previews', 'properties', 'operators', 'user_interface', 'preferences']
 
 register, unregister = utils.register_submodule_factory(__name__, submodules)
