@@ -99,8 +99,8 @@ def tool_actions_enum(self, context):
              ["EDIT_SELECTION", "Edit Selection", "Edit current selection and apply Perfect Shape"],
              ["TRANSFORM", "Transform", "Transform Shape"]]
 
-    reg = context.region.type
-    if not reg == 'TOOL_HEADER':
+    reg = context.region.type if context.region is not None else None
+    if reg is not None and reg != 'TOOL_HEADER':
         for item in items:
             item[1] = "    " + item[1]
     return tuple(tuple(i) for i in items)

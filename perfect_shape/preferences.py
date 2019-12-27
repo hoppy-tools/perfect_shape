@@ -1,22 +1,9 @@
 import bpy
 import rna_keymap_ui
 from bpy.types import Operator, AddonPreferences
-
+from bl_keymap_utils.io import keyconfig_init_from_data
 
 keymaps = []
-
-
-class PerfectShapeAPreferences(AddonPreferences):
-    bl_idname = __package__
-
-    def draw(self, context):
-        layout = self.layout
-        col = layout.column()
-        kc = bpy.context.window_manager.keyconfigs.addon
-        for km, kmi in keymaps:
-            km = km.active()
-            col.context_pointer_set("keymap", km)
-            rna_keymap_ui.draw_kmi([], kc, km, kmi, col, 0)
 
 
 def register_keymaps():
@@ -35,21 +22,15 @@ def register_keymaps():
     kc_defaultconf = keyconfigs.default
     kc_addonconf = keyconfigs.addon
 
-
-    from bl_keymap_utils.io import keyconfig_init_from_data
     keyconfig_init_from_data(kc_defaultconf, [circle_select])
-
     keyconfig_init_from_data(kc_addonconf, [circle_select])
 
 
 def register():
-    bpy.utils.register_class(PerfectShapeAPreferences)
     register_keymaps()
 
 
 def unregister():
-    bpy.utils.unregister_class(PerfectShapeAPreferences)
-
     for km, kmi in keymaps:
         km.keymap_items.remove(kmi)
     keymaps.clear()

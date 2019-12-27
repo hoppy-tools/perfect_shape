@@ -7,38 +7,42 @@ from bpy.types import Operator
 from bpy.props import StringProperty
 
 from .properties import ShaperProperties
-from .user_interface import PerfectShapeUI, perfect_shape_tool
-from .helpers import ShapeHelper
-
+from .user_interface import PerfectShapeUI
+from .helpers import ShapeHelper, AppHelper
 
 
 class PERFECT_SHAPE_OT_select_and_shape(Operator):
     bl_label = "Select and Perfect Shape"
     bl_idname = "perfect_shape.select_and_shape"
 
-    bl_options = {'INTERNAL'}
-
-    select = False
+    bl_options = {'INTERNAL', 'BLOCKING', 'GRAB_CURSOR'}
 
     select_method: StringProperty(default='CIRCLE')
     select_mode: StringProperty(default='SET')
 
+    _release = False
+
     def modal(self, context, event):
-        if not self.select:
-            self.select = True
-            bpy.ops.view3d.select_circle('INVOKE_DEFAULT', wait_for_input=False, mode=self.select_mode)
+        if self._release:
+            self.execute(context)
+            return {'FINISHED'}
+
+        if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+            self._release = True
         elif event.type in {'RIGHTMOUSE', 'ESC'}:
             return {'CANCELLED'}
-        else:
-            bpy.ops.perfect_shape.perfect_shape('INVOKE_DEFAULT', True)
-            return {'FINISHED'}
+
         return {'PASS_THROUGH'}
 
+    def execute(self, context):
+        bpy.ops.perfect_shape.perfect_shape('INVOKE_REGION_WIN', True)
+        return {'FINISHED'}
+
     def invoke(self, context, event):
+        bpy.ops.view3d.select_circle('INVOKE_REGION_WIN', wait_for_input=False, mode=self.select_mode)
         wm = context.window_manager
         wm.modal_handler_add(self)
         return {'RUNNING_MODAL'}
-
 
 
 class PERFECT_SHAPE_OT_perfect_shape(ShaperProperties, PerfectShapeUI, Operator):
@@ -48,6 +52,11 @@ class PERFECT_SHAPE_OT_perfect_shape(ShaperProperties, PerfectShapeUI, Operator)
 
     @classmethod
     def poll(cls, context):
+        if len(context.window_manager.operators) > 1:
+            tool_settings = context.scene.perfect_shape_tool_settings
+            if tool_settings.action != 'NEW':
+                AppHelper.check_tool_action()
+
         return all((context.mode == "EDIT_MESH",
                     context.area.type == "VIEW_3D",
                     context.object is not None))

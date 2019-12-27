@@ -1,6 +1,45 @@
 import atexit
+import bpy
+import functools
 from .shaper import Shape
 from .previews import PREVIEW_MAX_POINTS, render_preview
+from bpy.app.handlers import persistent
+
+
+@persistent
+def update_handler(scene, graph):
+    to_remove = []
+    for func in AppHelper.functions:
+        result_ok = func(scene, graph)
+        if result_ok:
+            to_remove.append(func)
+
+    for func in to_remove:
+        AppHelper.functions.remove(func)
+
+
+class AppHelper:
+    functions = []
+    action_in_change = False
+
+    @classmethod
+    def _check_tool_action(cls, scene, graph):
+        editable = bpy.context.window_manager.operators[-1].bl_idname == "PERFECT_SHAPE_OT_perfect_shape" and \
+                   bpy.context.window_manager.operators[-2].bl_idname == "VIEW3D_OT_select_circle"
+        if not editable:
+            scene.perfect_shape_tool_settings.action = "NEW"
+            cls.action_in_change = False
+            return True
+        else:
+            pass
+        return False
+
+    @classmethod
+    def check_tool_action(cls):
+        if not cls.action_in_change:
+            cls.functions.append(lambda s, g: bpy.app.timers.register(functools.partial(cls._check_tool_action, s, g),
+                                                                      first_interval=0))
+            cls.action_in_change = True
 
 
 class ShapeHelper:
@@ -84,5 +123,12 @@ class ShapeHelper:
         cls._shape_preview = None
         cls._previews_shapes = None
 
+
+def register():
+    bpy.app.handlers.depsgraph_update_post.append(update_handler)
+
+
+def unregister():
+    pass
 
 atexit.register(ShapeHelper.at_exit)

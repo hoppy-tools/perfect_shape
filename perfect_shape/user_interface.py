@@ -68,31 +68,37 @@ def perfect_shape_tool():
 
         reg = context.region.type
         is_not_header = reg != 'TOOL_HEADER'
-        show_edit_props = context.window_manager.operators and \
-            context.window_manager.operators[-1].bl_idname == "PERFECT_SHAPE_OT_perfect_shape"
         props = tool.operator_properties("perfect_shape.perfect_shape")
         tool_settings = context.scene.perfect_shape_tool_settings
 
-        if show_edit_props:
-            row = layout.row(align=True)
-            if is_not_header:
-                row.scale_y = 1.8
-            row.prop(tool_settings, "action", text="" if is_not_header else None,
-                     icon_value=_get_icon(tool_settings.action) if is_not_header else 0)
-
+        row = layout.row()
+        if is_not_header:
+            row.scale_y = 1.8
+        row.prop(tool_settings, "action", text="" if is_not_header else None,
+                 icon_value=_get_icon(tool_settings.action) if is_not_header else 0)
         if tool_settings.action == "NEW":
+            row = layout.row()
+            row.operator("perfect_shape.perfect_shape", text="From Current Selection")
             layout.prop(props, "shape_source")
             layout.template_icon_view(props, "shape", show_labels=True, scale=8, scale_popup=6.0)
+
+    def draw_cursor(_context, tool, xy):
+        from gpu_extras.presets import draw_circle_2d
+        props = tool.operator_properties("view3d.select_circle")
+        radius = props.radius
+        draw_circle_2d(xy, (1.0,) * 4, radius, 32)
 
     return dict(
         idname="perfect_shape.perfect_shape_tool",
         label="Perfect Shape",
         description=(
-            "Extrude shape"
+            "Extrude shape with Perfect Shape addon"
         ),
         icon="ops.generic.select_circle",
         keymap="perfect_shape.select_and_shape",
+        operator="perfect_shape.select_and_shape",
         draw_settings=draw_settings,
+        draw_cursor=draw_cursor
     )
 
 
