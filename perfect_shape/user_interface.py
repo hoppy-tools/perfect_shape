@@ -1,6 +1,8 @@
 import bpy
 from bpy.utils.toolsystem import ToolDef
 from .utils import get_icon
+from gpu_extras.presets import draw_circle_2d
+from bpy.types import GizmoGroup
 
 
 class PerfectShapeUI:
@@ -57,37 +59,140 @@ class PerfectShapeUI:
         row.prop(self, 'projection_onto_self', text="", icon="MOD_SHRINKWRAP")
 
 
-@ToolDef.from_fn
-def perfect_shape_tool():
-    def draw_settings(context, layout, tool):
-        def _get_icon(value):
-            icon = "ops.generic.select_circle"
-            if value == "TRANSFORM":
-                icon = "ops.transform.transform"
-            return get_icon(icon)
+class PerfectShapeWidget(GizmoGroup):
+    bl_idname = "perfect_shape.widget"
+    bl_label = "Perfect Shape Transform Widget"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'WINDOW'
+    bl_options = {'PERSISTENT', '3D'}
 
-        reg = context.region.type
-        is_not_header = reg != 'TOOL_HEADER'
-        props = tool.operator_properties("perfect_shape.perfect_shape")
-        tool_settings = context.scene.perfect_shape_tool_settings
+    @staticmethod
+    def get_operator(context):
+        from perfect_shape.operators import PERFECT_SHAPE_OT_perfect_shape
+        wm = context.window_manager
+        op = wm.operators[-1] if wm.operators else None
+        if isinstance(op, PERFECT_SHAPE_OT_perfect_shape):
+            return op
+        return None
 
+    @staticmethod
+    def get_matrix_basis(context):
+        import bmesh
+        from mathutils import Matrix, Vector
+        ob = context.object
+        ob_bmesh = bmesh.from_edit_mesh(ob.data)
+        verts_co_average = Vector()
+        selected_verts_co = [v.co for v in ob_bmesh.verts if v.select]
+        for v in selected_verts_co:
+            verts_co_average += v
+        verts_co_average = verts_co_average / len(selected_verts_co)
+
+        forward = Vector()
+        selected_faces_normal = [f.normal for f in ob_bmesh.faces if f.select]
+        for n in selected_faces_normal:
+            forward += n
+        forward = forward / len(selected_faces_normal)
+        matrix_rotation = forward.to_track_quat('Z', 'Y').to_matrix().to_4x4()
+
+        return Matrix.Translation(verts_co_average) @ matrix_rotation @ Matrix()
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.perfect_shape_tool_settings.action == "TRANSFORM"
+
+    def setup(self, context):
+        def rotation_get():
+            op = PerfectShapeWidget.get_operator(context)
+            return op.rotation
+
+        def rotation_set(value):
+            op = PerfectShapeWidget.get_operator(context)
+            op.rotation = value
+
+        def shift_get():
+            op = PerfectShapeWidget.get_operator(context)
+            return op.shift / 10
+
+        def shift_set(value):
+            op = PerfectShapeWidget.get_operator(context)
+            op.shift = value * 10
+
+        matrix = PerfectShapeWidget.get_matrix_basis(context)
+
+        mpr = self.gizmos.new("GIZMO_GT_arrow_3d")
+        mpr.matrix_basis = matrix
+        mpr.draw_style = "BOX"
+        mpr.color = 0.9, 0.9, 0.3
+        mpr.alpha = 0.9
+        mpr.color_highlight = 1.0, 1.0, 1.0
+        mpr.alpha_highlight = 1.0
+        mpr.use_draw_modal = True
+        self.extrude_widget = mpr
+
+        mpr = self.gizmos.new("GIZMO_GT_dial_3d")
+        mpr.target_set_handler("offset", get=rotation_get, set=rotation_set)
+        mpr.matrix_basis = matrix
+        mpr.line_width = 3
+        mpr.color = 0.3, 0.5, 0.8
+        mpr.alpha = 0.9
+        mpr.color_highlight = 1.0, 1.0, 1.0
+        mpr.alpha_highlight = 1.0
+        mpr.use_draw_modal = True
+        self.rotation_widget = mpr
+
+        mpr = self.gizmos.new("GIZMO_GT_dial_3d")
+        mpr.target_set_handler("offset", get=shift_get, set=shift_set)
+        mpr.matrix_basis = matrix
+        mpr.line_width = 3
+        mpr.color = 0.9, 0.2, 0.3
+        mpr.alpha = 0.9
+        mpr.color_highlight = 1.0, 1.0, 1.0
+        mpr.alpha_highlight = 1.0
+        mpr.scale_basis = 1.2
+        mpr.use_draw_modal = True
+        self.shift_widget = mpr
+
+    def refresh(self, context):
+        matrix = PerfectShapeWidget.get_matrix_basis(context)
+        for widget in ['extrude_widget', 'rotation_widget', 'shift_widget']:
+            mpr = getattr(self, widget)
+            mpr.matrix_basis = matrix
+
+
+
+def tool_draw_settings(context, layout, tool):
+    def _get_icon(value):
+        icon = "ops.generic.select_circle"
+        if value == "TRANSFORM":
+            icon = "ops.transform.transform"
+        return get_icon(icon)
+
+    reg = context.region.type
+    is_not_header = reg != 'TOOL_HEADER'
+    props = tool.operator_properties("perfect_shape.perfect_shape")
+    tool_settings = context.scene.perfect_shape_tool_settings
+
+    row = layout.row()
+    if is_not_header:
+        row.scale_y = 1.8
+    row.prop(tool_settings, "action", text="" if is_not_header else None,
+             icon_value=_get_icon(tool_settings.action) if is_not_header else 0)
+    if tool_settings.action == "NEW":
         row = layout.row()
-        if is_not_header:
-            row.scale_y = 1.8
-        row.prop(tool_settings, "action", text="" if is_not_header else None,
-                 icon_value=_get_icon(tool_settings.action) if is_not_header else 0)
-        if tool_settings.action == "NEW":
-            row = layout.row()
-            row.operator("perfect_shape.perfect_shape", text="From Current Selection")
-            layout.prop(props, "shape_source")
-            layout.template_icon_view(props, "shape", show_labels=True, scale=8, scale_popup=6.0)
+        row.operator("perfect_shape.perfect_shape", text="From Current Selection")
+        layout.prop(props, "shape_source")
+        layout.template_icon_view(props, "shape", show_labels=True, scale=8, scale_popup=6.0)
 
-    def draw_cursor(_context, tool, xy):
-        from gpu_extras.presets import draw_circle_2d
+
+def tool_draw_cursor(context, tool, xy):
+    if context.scene.perfect_shape_tool_settings.action != "TRANSFORM":
         props = tool.operator_properties("view3d.select_circle")
         radius = props.radius
         draw_circle_2d(xy, (1.0,) * 4, radius, 32)
 
+
+@ToolDef.from_fn
+def perfect_shape_tool():
     return dict(
         idname="perfect_shape.perfect_shape_tool",
         label="Perfect Shape",
@@ -97,8 +202,9 @@ def perfect_shape_tool():
         icon="ops.generic.select_circle",
         keymap="perfect_shape.select_and_shape",
         operator="perfect_shape.select_and_shape",
-        draw_settings=draw_settings,
-        draw_cursor=draw_cursor
+        widget="perfect_shape.widget",
+        draw_settings=tool_draw_settings,
+        draw_cursor=tool_draw_cursor
     )
 
 
@@ -129,13 +235,14 @@ def unregister_tool():
 def perfect_shape_menu(self, context):
     layout = self.layout
     layout.separator()
-    layout.operator("mesh.perfect_shape")
+    layout.operator("perfect_shape.perfect_shape")
 
 
 def register():
     bpy.types.VIEW3D_MT_edit_mesh_edges.append(perfect_shape_menu)
     bpy.types.VIEW3D_MT_edit_mesh_vertices.append(perfect_shape_menu)
     bpy.types.VIEW3D_MT_edit_mesh_faces.append(perfect_shape_menu)
+    bpy.utils.register_class(PerfectShapeWidget)
     register_tool()
 
 
@@ -143,4 +250,5 @@ def unregister():
     bpy.types.VIEW3D_MT_edit_mesh_faces.remove(perfect_shape_menu)
     bpy.types.VIEW3D_MT_edit_mesh_vertices.remove(perfect_shape_menu)
     bpy.types.VIEW3D_MT_edit_mesh_edges.remove(perfect_shape_menu)
+    bpy.utils.unregister_class(PerfectShapeWidget)
     unregister_tool()

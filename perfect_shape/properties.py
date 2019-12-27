@@ -7,6 +7,8 @@ from bpy.props import (EnumProperty, BoolProperty, IntProperty, FloatProperty, S
 from .previews import get_shape_preview_icon_id
 from .helpers import ShapeHelper
 from .user_interface import perfect_shape_tool
+from bl_ui.space_toolsystem_common import activate_by_id
+
 
 previews_update_time = None
 previews_update_data = None
@@ -106,13 +108,18 @@ def tool_actions_enum(self, context):
     return tuple(tuple(i) for i in items)
 
 
-def tool_actions_update():
-    perfect_shape_tool.keymap[0] = ""
+def tool_actions_update(self, context):
+    if self.action == "TRANSFORM":
+        perfect_shape_tool.keymap[0] = ""
+    else:
+        perfect_shape_tool.keymap[0] = "perfect_shape.select_and_shape"
+
+    activate_by_id(context, "VIEW_3D", "perfect_shape.perfect_shape_tool")
+
 
 
 class PerfectShapeToolSettings(bpy.types.PropertyGroup):
-    action: EnumProperty(name="Action", items=tool_actions_enum)
-
+    action: EnumProperty(name="Action", items=tool_actions_enum, update=tool_actions_update)
 
 def register():
     global shapes_types_dict

@@ -8,19 +8,14 @@ from bpy.app.handlers import persistent
 
 @persistent
 def update_handler(scene, graph):
-    to_remove = []
-    for func in AppHelper.functions:
-        result_ok = func(scene, graph)
+    if AppHelper.action_in_change_func is not None:
+        result_ok = AppHelper.action_in_change_func(scene, graph)
         if result_ok:
-            to_remove.append(func)
-
-    for func in to_remove:
-        AppHelper.functions.remove(func)
+            AppHelper.action_in_change_func = None
 
 
 class AppHelper:
-    functions = []
-    action_in_change = False
+    action_in_change_func = None
 
     @classmethod
     def _check_tool_action(cls, scene, graph):
@@ -28,7 +23,6 @@ class AppHelper:
                    bpy.context.window_manager.operators[-2].bl_idname == "VIEW3D_OT_select_circle"
         if not editable:
             scene.perfect_shape_tool_settings.action = "NEW"
-            cls.action_in_change = False
             return True
         else:
             pass
@@ -36,11 +30,8 @@ class AppHelper:
 
     @classmethod
     def check_tool_action(cls):
-        if not cls.action_in_change:
-            cls.functions.append(lambda s, g: bpy.app.timers.register(functools.partial(cls._check_tool_action, s, g),
-                                                                      first_interval=0))
-            cls.action_in_change = True
-
+        if cls.action_in_change_func is None:
+            cls.action_in_change_func = cls._check_tool_action
 
 class ShapeHelper:
     _shape = None

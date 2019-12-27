@@ -52,10 +52,9 @@ class PERFECT_SHAPE_OT_perfect_shape(ShaperProperties, PerfectShapeUI, Operator)
 
     @classmethod
     def poll(cls, context):
-        if len(context.window_manager.operators) > 1:
-            tool_settings = context.scene.perfect_shape_tool_settings
-            if tool_settings.action != 'NEW':
-                AppHelper.check_tool_action()
+        tool_settings = context.scene.perfect_shape_tool_settings
+        if tool_settings.action != 'NEW':
+            AppHelper.check_tool_action()
 
         return all((context.mode == "EDIT_MESH",
                     context.area.type == "VIEW_3D",
@@ -80,6 +79,8 @@ class PERFECT_SHAPE_OT_perfect_shape(ShaperProperties, PerfectShapeUI, Operator)
     def execute(self, context):
         self.update_shape_and_previews(self.shape)
         context.scene.perfect_shape_tool_settings.action = "TRANSFORM"
+        for area in context.screen.areas:
+            area.tag_redraw()
         return {'FINISHED'}
 
     def invoke(self, context, event):
