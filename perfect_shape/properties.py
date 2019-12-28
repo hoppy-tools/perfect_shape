@@ -57,6 +57,14 @@ def get_best_shift(self, context):
         self.shift_next_better = False
 
 
+def set_shift(self, value):
+    self['shift'] = value % (self.target_points_count * (-1 if value < 0 else 1))
+
+
+def get_shift(self):
+    return self.get('shift', 0)
+
+
 class ShaperProperties:
     shape_source: EnumProperty(name="Shape Source",
                                items=(("GENERIC", "Generic", "Generic Shape"),
@@ -76,7 +84,7 @@ class ShaperProperties:
     target_points_count: IntProperty()
 
     span: IntProperty(name="Span", update=trigger_update_previews)
-    shift: IntProperty(name="Shift", update=trigger_update_previews)
+    shift: IntProperty(name="Shift", update=trigger_update_previews, set=set_shift, get=get_shift)
     shift_next_better: BoolProperty(name="Next better shift", description="Next better shift",
                                     default=False, update=get_best_shift)
 

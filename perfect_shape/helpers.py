@@ -13,14 +13,22 @@ def update_handler(scene, graph):
         if result_ok:
             AppHelper.action_in_change_func = None
 
+    if AppHelper.execute_operator_func is not None:
+        AppHelper.execute_operator_func(scene, graph)
+        AppHelper.execute_operator_func = None
+
 
 class AppHelper:
     action_in_change_func = None
+    execute_operator_func = None
 
     @classmethod
     def _check_tool_action(cls, scene, graph):
-        editable = bpy.context.window_manager.operators[-1].bl_idname == "PERFECT_SHAPE_OT_perfect_shape" and \
-                   bpy.context.window_manager.operators[-2].bl_idname == "VIEW3D_OT_select_circle"
+        wm = bpy.context.window_manager
+        if len(wm.operators) < 2:
+            editable = False
+        else:
+            editable = wm.operators[-1].bl_idname == "PERFECT_SHAPE_OT_perfect_shape"
         if not editable:
             scene.perfect_shape_tool_settings.action = "NEW"
             return True
@@ -32,6 +40,26 @@ class AppHelper:
     def check_tool_action(cls):
         if cls.action_in_change_func is None:
             cls.action_in_change_func = cls._check_tool_action
+
+    @classmethod
+    def execute_perfect_shape_operator(cls, rotation, shift, span):
+        wm = bpy.context.window_manager
+        if not wm.operators:
+            return False
+        op = wm.operators[-1]
+        if op.bl_idname != "PERFECT_SHAPE_OT_perfect_shape":
+            return False
+
+        def _execute_operator(scene, graph):
+            op.rotation = rotation
+            op.shift = shift
+            op.span = span
+            op.execute(bpy.context)
+            return True
+
+        if cls.execute_operator_func is None:
+            cls.execute_operator_func = _execute_operator
+
 
 class ShapeHelper:
     _shape = None
@@ -113,6 +141,10 @@ class ShapeHelper:
         cls._shape = None
         cls._shape_preview = None
         cls._previews_shapes = None
+
+    @classmethod
+    def get_points_count(cls):
+        return cls._shape.target_points_count
 
 
 def register():

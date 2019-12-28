@@ -23,12 +23,12 @@ class Shape:
         self.rotation = rotation
         self.is_generated = is_generated
 
-        self.target_points_count = target_points_count
         self.points_distribution = points_distribution
         self.points_distribution_smooth = points_distribution_smooth
 
         self.bmesh = self.create_bmesh(points)
         self.bmesh_original = self.create_bmesh_original(points_original)
+        self.target_points_count = target_points_count or len(self.bmesh_original.verts)
 
     def __del__(self):
         self.clear_cache()
@@ -80,13 +80,13 @@ class Shape:
             self.bmesh,
             verts=self.bmesh.verts,
             cent=(0.0, 0.0, 0.0),
-            matrix=Matrix.Rotation(self.rotation, 3, 'Z'))
+            matrix=Matrix.Rotation(-self.rotation, 3, 'Z'))
 
         bmesh.ops.rotate(
             self.bmesh_original,
             verts=self.bmesh_original.verts,
             cent=(0.0, 0.0, 0.0),
-            matrix=Matrix.Rotation(self.rotation, 3, 'Z'))
+            matrix=Matrix.Rotation(-self.rotation, 3, 'Z'))
 
     @lru_cache()
     def get_points(self):

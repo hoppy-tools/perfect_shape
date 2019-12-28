@@ -1,9 +1,12 @@
 import bpy
+import math
+import bmesh
 from bpy.utils.toolsystem import ToolDef
 from .utils import get_icon
 from gpu_extras.presets import draw_circle_2d
 from bpy.types import GizmoGroup
-
+from mathutils import Matrix, Vector
+from perfect_shape.helpers import ShapeHelper
 
 class PerfectShapeUI:
     def draw(self, context):
@@ -64,7 +67,7 @@ class PerfectShapeWidget(GizmoGroup):
     bl_label = "Perfect Shape Transform Widget"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'WINDOW'
-    bl_options = {'PERSISTENT', '3D'}
+    bl_options = {'3D'}
 
     @staticmethod
     def get_operator(context):
@@ -76,9 +79,16 @@ class PerfectShapeWidget(GizmoGroup):
         return None
 
     @staticmethod
+    def get_theme(context):
+        return context.preferences.themes[0]
+
+    @staticmethod
+    def get_user_interface_color(context, key):
+        theme = PerfectShapeWidget.get_theme(context)
+        return getattr(theme.user_interface, key)
+
+    @staticmethod
     def get_matrix_basis(context):
-        import bmesh
-        from mathutils import Matrix, Vector
         ob = context.object
         ob_bmesh = bmesh.from_edit_mesh(ob.data)
         verts_co_average = Vector()
@@ -94,11 +104,11 @@ class PerfectShapeWidget(GizmoGroup):
         forward = forward / len(selected_faces_normal)
         matrix_rotation = forward.to_track_quat('Z', 'Y').to_matrix().to_4x4()
 
-        return Matrix.Translation(verts_co_average) @ matrix_rotation @ Matrix()
+        return ob.matrix_world @ Matrix.Translation(verts_co_average) @ matrix_rotation @ Matrix()
 
     @classmethod
     def poll(cls, context):
-        return context.scene.perfect_shape_tool_settings.action == "TRANSFORM"
+        return cls.get_operator(context) is not None and context.scene.perfect_shape_tool_settings.action == "TRANSFORM"
 
     def setup(self, context):
         def rotation_get():
@@ -108,56 +118,148 @@ class PerfectShapeWidget(GizmoGroup):
         def rotation_set(value):
             op = PerfectShapeWidget.get_operator(context)
             op.rotation = value
+            op.execute(context)
 
         def shift_get():
             op = PerfectShapeWidget.get_operator(context)
-            return op.shift / 10
+            value = op.shift * ((math.pi / 2) / (ShapeHelper.get_points_count()-1))
+            return value
 
         def shift_set(value):
             op = PerfectShapeWidget.get_operator(context)
             op.shift = value * 10
+            op.execute(context)
 
-        matrix = PerfectShapeWidget.get_matrix_basis(context)
+        def span_get():
+            op = PerfectShapeWidget.get_operator(context)
+            return op.span
+
+        def span_set(value):
+            op = PerfectShapeWidget.get_operator(context)
+            op.span = value
+            op.execute(context)
+
+        def move_get():
+            return 0.0
+
+        def move_set(value):
+            pass
 
         mpr = self.gizmos.new("GIZMO_GT_arrow_3d")
-        mpr.matrix_basis = matrix
+        mpr.target_set_operator("perfect_shape.widget_extrude")
+        mpr.use_draw_value = False
         mpr.draw_style = "BOX"
-        mpr.color = 0.9, 0.9, 0.3
-        mpr.alpha = 0.9
+        mpr.line_width = 3
+        mpr.color = PerfectShapeWidget.get_user_interface_color(context, 'gizmo_primary')
         mpr.color_highlight = 1.0, 1.0, 1.0
+        mpr.alpha = 0.9
         mpr.alpha_highlight = 1.0
-        mpr.use_draw_modal = True
+        mpr.select_bias = True
         self.extrude_widget = mpr
 
-        mpr = self.gizmos.new("GIZMO_GT_dial_3d")
-        mpr.target_set_handler("offset", get=rotation_get, set=rotation_set)
-        mpr.matrix_basis = matrix
+        mpr = self.gizmos.new("GIZMO_GT_primitive_3d")
+        mpr.target_set_operator("perfect_shape.widget_scale")
+        mpr.use_draw_value = False
+        mpr.use_draw_offset_scale = True
         mpr.line_width = 3
-        mpr.color = 0.3, 0.5, 0.8
+        mpr.color = PerfectShapeWidget.get_user_interface_color(context, 'axis_z')
+        mpr.color_highlight = 1.0, 1.0, 1.0
+        mpr.alpha = 1.0
+        mpr.alpha_highlight = 1.0
+        mpr.scale_basis = 0.2
+        mpr.select_bias = True
+        self.scale_widget = mpr
+
+        mpr = self.gizmos.new("GIZMO_GT_arrow_3d")
+        mpr.target_set_operator("perfect_shape.widget_move")
+        mpr.use_draw_value = False
+        mpr.target_set_handler("offset", get=move_get, set=move_set)
+        mpr.length = 0.0
+        mpr.use_draw_offset_scale = True
+        mpr.line_width = 3
+        mpr.color = PerfectShapeWidget.get_user_interface_color(context, 'axis_y')
+        mpr.matrix_offset = Matrix.Translation(Vector((0.0, 0.0, 1.08)))
+        mpr.alpha = 1.0
+        mpr.color_highlight = 1.0, 1.0, 1.0
+        mpr.alpha_highlight = 1.0
+        self.move_y_widget = mpr
+
+        mpr = self.gizmos.new("GIZMO_GT_arrow_3d")
+        mpr.target_set_operator("perfect_shape.widget_move")
+        mpr.use_draw_value = False
+        mpr.target_set_handler("offset", get=move_get, set=move_set)
+        mpr.length = 0.0
+        mpr.use_draw_offset_scale = True
+        mpr.line_width = 3
+        mpr.color = PerfectShapeWidget.get_user_interface_color(context, 'axis_x')
+        mpr.matrix_offset = Matrix.Translation(Vector((0.0, 0.0, 1.08)))
+        mpr.alpha = 1.0
+        mpr.color_highlight = 1.0, 1.0, 1.0
+        mpr.alpha_highlight = 1.0
+        self.move_x_widget = mpr
+
+        mpr = self.gizmos.new("GIZMO_GT_dial_3d")
+        mpr.use_draw_value = True
+        mpr.draw_options = {'ANGLE_VALUE'}
+        mpr.target_set_operator("perfect_shape.widget_rotation")
+        mpr.target_set_handler("offset", get=rotation_get, set=rotation_set)
+        mpr.line_width = 3
+        mpr.color = PerfectShapeWidget.get_user_interface_color(context, 'axis_z')
         mpr.alpha = 0.9
         mpr.color_highlight = 1.0, 1.0, 1.0
         mpr.alpha_highlight = 1.0
-        mpr.use_draw_modal = True
+        mpr.select_bias = True
+        mpr.scale_basis = 0.6
+
         self.rotation_widget = mpr
 
         mpr = self.gizmos.new("GIZMO_GT_dial_3d")
+        mpr.draw_options = {'FILL'}
+        mpr.color = PerfectShapeWidget.get_user_interface_color(context, 'axis_z')
+        mpr.color.s = 0.5
+        mpr.color_highlight = mpr.color
+        mpr.alpha = 1.0
+        mpr.alpha_highlight = 1.0
+        mpr.scale_basis = 0.6
+        self.rotation_bg_widget = mpr
+
+        mpr = self.gizmos.new("GIZMO_GT_dial_3d")
+        mpr.use_draw_value = True
+        mpr.draw_options = {"ANGLE_VALUE"}
+        mpr.target_set_operator("perfect_shape.widget_shift")
         mpr.target_set_handler("offset", get=shift_get, set=shift_set)
-        mpr.matrix_basis = matrix
         mpr.line_width = 3
-        mpr.color = 0.9, 0.2, 0.3
+        mpr.color = PerfectShapeWidget.get_user_interface_color(context, 'gizmo_a')
         mpr.alpha = 0.9
         mpr.color_highlight = 1.0, 1.0, 1.0
         mpr.alpha_highlight = 1.0
-        mpr.scale_basis = 1.2
-        mpr.use_draw_modal = True
+        mpr.arc_partial_angle = math.pi
         self.shift_widget = mpr
+
+        mpr = self.gizmos.new("GIZMO_GT_dial_3d")
+        #mpr.use_draw_value = True
+        #mpr.draw_options = {"ANGLE_VALUE"}
+        mpr.use_draw_modal = True
+        mpr.target_set_operator("perfect_shape.widget_span")
+
+        mpr.target_set_handler("offset", get=span_get, set=span_set)
+        mpr.line_width = 3
+        mpr.color = PerfectShapeWidget.get_user_interface_color(context, 'gizmo_primary')
+        mpr.alpha = 0.9
+        mpr.color_highlight = 1.0, 1.0, 1.0
+        mpr.alpha_highlight = 1.0
+        mpr.scale_basis = 1.4
+        #mpr.arc_partial_angle = math.pi
+        #mpr.incremental_angle = math.pi
+        self.span_widget = mpr
 
     def refresh(self, context):
         matrix = PerfectShapeWidget.get_matrix_basis(context)
-        for widget in ['extrude_widget', 'rotation_widget', 'shift_widget']:
-            mpr = getattr(self, widget)
+        for widget in ['extrude', 'rotation', 'rotation_bg', 'shift', 'span', 'scale']:
+            mpr = getattr(self, widget + "_widget")
             mpr.matrix_basis = matrix
-
+        self.move_y_widget.matrix_basis = matrix @ Matrix.Rotation(math.radians(-90), 4, 'X')
+        self.move_x_widget.matrix_basis = matrix @ Matrix.Rotation(math.radians(90), 4, 'Y')
 
 
 def tool_draw_settings(context, layout, tool):
