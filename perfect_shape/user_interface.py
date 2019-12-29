@@ -122,12 +122,14 @@ class PerfectShapeWidget(GizmoGroup):
 
         def shift_get():
             op = PerfectShapeWidget.get_operator(context)
-            value = op.shift * ((math.pi / 2) / (ShapeHelper.get_points_count()-1))
+            step = ((math.pi / 2) / (ShapeHelper.get_points_count() - 1))
+            value = op.shift * step
             return value
 
         def shift_set(value):
             op = PerfectShapeWidget.get_operator(context)
-            op.shift = value * 10
+            step = ((math.pi / 2) / (ShapeHelper.get_points_count()-1))
+            op.shift = value // step
             op.execute(context)
 
         def span_get():
@@ -163,10 +165,11 @@ class PerfectShapeWidget(GizmoGroup):
         mpr.use_draw_offset_scale = True
         mpr.line_width = 3
         mpr.color = PerfectShapeWidget.get_user_interface_color(context, 'axis_z')
+        mpr.matrix_offset = Matrix.Translation(Vector((0.0, -9.8, 0.0)))
         mpr.color_highlight = 1.0, 1.0, 1.0
         mpr.alpha = 1.0
         mpr.alpha_highlight = 1.0
-        mpr.scale_basis = 0.2
+        mpr.scale_basis = 0.1
         mpr.select_bias = True
         self.scale_widget = mpr
 
