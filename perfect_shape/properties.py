@@ -5,7 +5,7 @@ import bpy
 from bpy.app import timers as bpy_timers
 from bpy.props import (EnumProperty, BoolProperty, IntProperty, FloatProperty, StringProperty)
 from .previews import get_shape_preview_icon_id
-from .helpers import ShapeHelper
+from .helpers import ShapeHelper, AppHelper
 from .user_interface import perfect_shape_tool
 from bl_ui.space_toolsystem_common import activate_by_id
 
@@ -40,9 +40,7 @@ def trigger_update_previews(self, context):
             bpy_timers.register(update_all_previews)
 
     previews_update_time = time.time()
-    previews_update_data = (self.target_points_count,
-                            (self.ratio_a, self.ratio_b),
-                            self.span, self.shift, self.rotation, None, self.target_points_count,
+    previews_update_data = (self.shift, self.span, self.rotation, (self.ratio_a, self.ratio_b), None, None, self.shape,
                             self.points_distribution, self.points_distribution_smooth)
     update_all_previews()
 
@@ -58,7 +56,7 @@ def get_best_shift(self, context):
 
 
 def set_shift(self, value):
-    self['shift'] = value % (self.target_points_count * (-1 if value < 0 else 1))
+    self['shift'] = value % (ShapeHelper.get_points_count() * (-1 if value < 0 else 1))
 
 
 def get_shift(self):
@@ -73,15 +71,13 @@ class ShaperProperties:
                                update=shape_source_update)
     shape: EnumProperty(name="Shape", items=enum_shape_types)
 
-    factor: FloatProperty(name="Factor", min=0.0, max=1.0, default=1.0)
+    influence: FloatProperty(name="Influence", default=100.0, min=0.0, max=100.0, precision=1, subtype='PERCENTAGE')
 
     points_distribution: EnumProperty(name="Points distribution", items=(("EVEN", "Evenly", "Evenly throughout the shape"),
                                                                  ("SEQUENCE", "Sequentially", "One after the other")))
     points_distribution_smooth: BoolProperty(name="Smooth", default=False)
 
     target: StringProperty()
-
-    target_points_count: IntProperty()
 
     span: IntProperty(name="Span", update=trigger_update_previews)
     shift: IntProperty(name="Shift", update=trigger_update_previews, set=set_shift, get=get_shift)
@@ -122,12 +118,14 @@ def tool_actions_update(self, context):
     else:
         perfect_shape_tool.keymap[0] = "perfect_shape.select_and_shape"
 
-    activate_by_id(context, "VIEW_3D", "perfect_shape.perfect_shape_tool")
-
+    activated = activate_by_id(context, "VIEW_3D", "perfect_shape.perfect_shape_tool")
+    if not activated:
+        AppHelper.active_tool_on_poll = True
 
 
 class PerfectShapeToolSettings(bpy.types.PropertyGroup):
     action: EnumProperty(name="Action", items=tool_actions_enum, update=tool_actions_update)
+
 
 def register():
     global shapes_types_dict

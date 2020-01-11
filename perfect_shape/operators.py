@@ -10,6 +10,8 @@ from .properties import ShaperProperties
 from .user_interface import PerfectShapeUI
 from .helpers import ShapeHelper, AppHelper
 
+from bl_ui.space_toolsystem_common import activate_by_id
+
 
 class PERFECT_SHAPE_OT_select_and_shape(Operator):
     bl_label = "Select and Perfect Shape"
@@ -116,6 +118,14 @@ class PERFECT_SHAPE_OT_perfect_shape(ShaperProperties, PerfectShapeUI, Operator)
         if tool_settings.action != 'NEW':
             AppHelper.check_tool_action()
 
+        if AppHelper.active_tool_on_poll:
+            activate_by_id(context, "VIEW_3D", "perfect_shape.perfect_shape_tool")
+            AppHelper.active_tool_on_poll = False
+
+        if not ShapeHelper.initialized():
+            ShapeHelper.generate_shapes(0, 0, 0.0, (1, 1))
+            ShapeHelper.render_previews()
+
         return all((context.mode == "EDIT_MESH",
                     context.area.type == "VIEW_3D",
                     context.object is not None))
@@ -123,37 +133,37 @@ class PERFECT_SHAPE_OT_perfect_shape(ShaperProperties, PerfectShapeUI, Operator)
     def check(self, context):
         return True
 
-    def update_shape_and_previews(self, key=None):
-        ShapeHelper.generate_shapes(self.target_points_count,
-                                    (self.ratio_a, self.ratio_b),
-                                    self.span, self.shift, self.rotation, key, self.target_points_count,
-                                    self.points_distribution, self.points_distribution_smooth)
-        if key is not None:
-            ShapeHelper.calc_best_shifts()
-            ShapeHelper.apply_transforms()
-        ShapeHelper.render_previews()
+    def update_shape_and_previews(self, key=None, main=None, exclude=None):
+        refresh = ShapeHelper.generate_shapes(self.shift, self.span, self.rotation, (self.ratio_a, self.ratio_b),
+                                              key, main, exclude,
+                                              self.points_distribution, self.points_distribution_smooth)
+        if refresh:
+            ShapeHelper.render_previews(rotation=self.rotation)
+
         if ShapeHelper.max_points:
             self.report({'INFO'},
                         "The maximum number({}) of preview points has been reached.".format(ShapeHelper.max_points))
 
     def execute(self, context):
-        self.update_shape_and_previews(self.shape)
+        if ShapeHelper.get_points_count() < 3:
+            self.report({'WARNING'}, "Select at least 3 vertices.")
+            return {'FINISHED'}
+
         for area in context.screen.areas:
             area.tag_redraw()
         context.object.update_from_editmode()
+        self.update_shape_and_previews(self.shape)
         return {'FINISHED'}
 
     def invoke(self, context, event):
+        ShapeHelper.clear_cache()
         object = context.object
         object.update_from_editmode()
 
-        object_bm = bmesh.from_edit_mesh(object.data)
-        selected_verts = [v for v in object_bm.verts if v.select]
-        self.target_points_count = len(selected_verts)
-
+        ShapeHelper.prepare_object(object)
         ShapeHelper.clear_best_shifts()
 
-        self.update_shape_and_previews()
+        self.update_shape_and_previews(main=self.shape)
         context.scene.perfect_shape_tool_settings.action = "TRANSFORM"
         return self.execute(context)
 

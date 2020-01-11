@@ -142,7 +142,7 @@ def get_points_colors(points_count, original_count):
     return [active_color if i < original_count else inactive_color for i in range(points_count)]
 
 
-def render(shape):
+def render(shape, rotation=None):
     points = shape.get_points()
     points_original = shape.get_points_original()
     points_count = shape.get_points_count()
@@ -164,8 +164,11 @@ def render(shape):
         bgl.glBlendFunc(bgl.GL_SRC_ALPHA, bgl.GL_ONE_MINUS_SRC_ALPHA)
 
         projection_matrix = Matrix.Identity(4) @ Matrix.Scale(0.8, 4)
+        if rotation:
+            projection_matrix = projection_matrix @ Matrix.Rotation(-rotation, 4, 'Z')
         original_projection_matrix = Matrix.Identity(4) @ Matrix.Scale(0.8, 4)
-
+        if rotation:
+            original_projection_matrix = original_projection_matrix @ Matrix.Rotation(-rotation, 4, 'Z')
         with gpu.matrix.push_pop():
 
             gpu.matrix.load_matrix(Matrix.Identity(4))
@@ -220,9 +223,9 @@ def render(shape):
     return buffer
 
 
-def render_preview(collection_name, preview_name, shape):
+def render_preview(collection_name, preview_name, shape, rotation=None):
     preview = get_preview(collection_name, preview_name)
-    preview.image_pixels_float = render(shape)
+    preview.image_pixels_float = render(shape, rotation)
 
 
 def create_shaders():

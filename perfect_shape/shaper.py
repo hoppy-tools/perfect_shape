@@ -1,5 +1,4 @@
-from functools import reduce, lru_cache
-from operator import add
+from functools import lru_cache
 from mathutils import Vector, Matrix
 import math
 import numpy
@@ -28,9 +27,15 @@ class Shape:
 
         self.bmesh = self.create_bmesh(points)
         self.bmesh_original = self.create_bmesh_original(points_original)
-        self.target_points_count = target_points_count or len(self.bmesh_original.verts)
+        self.target_points_count = target_points_count
+
+        self.apply_span()
+        self.apply_subdivide()
+
 
     def __del__(self):
+        self.bmesh.free()
+        self.bmesh_original.free()
         self.clear_cache()
 
     def create_bmesh(self, points):
@@ -88,22 +93,17 @@ class Shape:
             cent=(0.0, 0.0, 0.0),
             matrix=Matrix.Rotation(-self.rotation, 3, 'Z'))
 
-    @lru_cache()
     def get_points(self):
         return [v.co.xy for v in self.bmesh.verts]
 
-    @lru_cache()
     def get_points_original(self):
         return [v.co.xy for v in self.bmesh_original.verts]
 
-    @lru_cache()
     def get_points_count(self):
         return len(self.bmesh.verts)
 
     def clear_cache(self):
-        self.get_points.cache_clear()
-        self.get_points_original.cache_clear()
-        self.get_points_count.cache_clear()
+        pass
 
     def apply_span(self):
         if self.span < 0:

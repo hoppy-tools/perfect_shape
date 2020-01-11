@@ -8,6 +8,7 @@ from bpy.types import GizmoGroup
 from mathutils import Matrix, Vector
 from perfect_shape.helpers import ShapeHelper
 
+
 class PerfectShapeUI:
     def draw(self, context):
         layout = self.layout
@@ -15,7 +16,7 @@ class PerfectShapeUI:
         split = layout.split()
         col = split.column()
         col.template_icon_view(self, "shape", show_labels=True, scale=13.2, scale_popup=6.0)
-        col.prop(self, 'factor', expand=True)
+        col.prop(self, 'influence', expand=True)
         split = layout.split(factor=0.3)
         col = split.column(align=True)
         col.label(text="Source:")
@@ -89,25 +90,12 @@ class PerfectShapeWidget(GizmoGroup):
 
     @staticmethod
     def get_matrix_basis(context):
-        ob = context.object
-        ob_bmesh = bmesh.from_edit_mesh(ob.data)
-        verts_co_average = Vector()
-        selected_verts_co = [v.co for v in ob_bmesh.verts if v.select]
-        for v in selected_verts_co:
-            verts_co_average += v
-        verts_co_average = verts_co_average / len(selected_verts_co)
-
-        forward = Vector()
-        selected_faces_normal = [f.normal for f in ob_bmesh.faces if f.select]
-        for n in selected_faces_normal:
-            forward += n
-        forward = forward / len(selected_faces_normal)
-        matrix_rotation = forward.to_track_quat('Z', 'Y').to_matrix().to_4x4()
-
-        return ob.matrix_world @ Matrix.Translation(verts_co_average) @ matrix_rotation @ Matrix()
+        return ShapeHelper.get_object_shape_projection_matrix().normalized()
 
     @classmethod
     def poll(cls, context):
+        if ShapeHelper.get_points_count() < 3:
+            return False
         return cls.get_operator(context) is not None and context.scene.perfect_shape_tool_settings.action == "TRANSFORM"
 
     def setup(self, context):
@@ -134,11 +122,11 @@ class PerfectShapeWidget(GizmoGroup):
 
         def span_get():
             op = PerfectShapeWidget.get_operator(context)
-            return op.span
+            return math.radians(op.span*6)
 
         def span_set(value):
             op = PerfectShapeWidget.get_operator(context)
-            op.span = value
+            op.span = math.degrees(value/6)
             op.execute(context)
 
         def move_get():
@@ -213,7 +201,6 @@ class PerfectShapeWidget(GizmoGroup):
         mpr.alpha_highlight = 1.0
         mpr.select_bias = True
         mpr.scale_basis = 0.6
-
         self.rotation_widget = mpr
 
         mpr = self.gizmos.new("GIZMO_GT_dial_3d")
@@ -240,11 +227,8 @@ class PerfectShapeWidget(GizmoGroup):
         self.shift_widget = mpr
 
         mpr = self.gizmos.new("GIZMO_GT_dial_3d")
-        #mpr.use_draw_value = True
-        #mpr.draw_options = {"ANGLE_VALUE"}
         mpr.use_draw_modal = True
         mpr.target_set_operator("perfect_shape.widget_span")
-
         mpr.target_set_handler("offset", get=span_get, set=span_set)
         mpr.line_width = 3
         mpr.color = PerfectShapeWidget.get_user_interface_color(context, 'gizmo_primary')
@@ -252,8 +236,7 @@ class PerfectShapeWidget(GizmoGroup):
         mpr.color_highlight = 1.0, 1.0, 1.0
         mpr.alpha_highlight = 1.0
         mpr.scale_basis = 1.4
-        #mpr.arc_partial_angle = math.pi
-        #mpr.incremental_angle = math.pi
+        mpr.wrap_angle = True
         self.span_widget = mpr
 
     def refresh(self, context):
