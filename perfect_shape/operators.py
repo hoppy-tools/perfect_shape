@@ -16,7 +16,7 @@ from bl_ui.space_toolsystem_common import activate_by_id
 class PERFECT_SHAPE_OT_select_and_shape(Operator):
     bl_label = "Select and Perfect Shape"
     bl_idname = "perfect_shape.select_and_shape"
-    bl_options = {'INTERNAL', 'BLOCKING', 'GRAB_CURSOR'}
+    bl_options = {'INTERNAL'}
 
     select_method: StringProperty(default='CIRCLE')
     select_mode: StringProperty(default='SET')
@@ -63,7 +63,10 @@ class WidgetOperator:
             return {'FINISHED'}
         elif event.type in {'RIGHTMOUSE', 'ESC'}:
             return {'CANCELLED'}
-        return {'PASS_THROUGH'}
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        print("Execute!!")
 
     def invoke(self, context, event):
         wm = context.window_manager

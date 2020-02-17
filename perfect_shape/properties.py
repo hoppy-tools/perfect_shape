@@ -56,7 +56,7 @@ def get_best_shift(self, context):
 
 
 def set_shift(self, value):
-    self['shift'] = value % (ShapeHelper.get_points_count() * (-1 if value < 0 else 1))
+    self['shift'] = value % (ShapeHelper.get_final_points_cout() * (-1 if value < 0 else 1))
 
 
 def get_shift(self):

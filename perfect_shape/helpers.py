@@ -19,6 +19,8 @@ def update_handler(scene, graph):
 
 
 class AppHelper:
+    __slots__ = tuple()
+
     action_in_change_timer = None
     execute_operator_func = None
     active_tool_on_poll = False
@@ -67,6 +69,8 @@ class AppHelper:
 
 
 class ShapeHelper:
+    __slots__ = tuple()
+
     _object = None
     _object_bm = None
     _object_selected_verts = []
@@ -262,6 +266,10 @@ class ShapeHelper:
     @classmethod
     def get_points_count(cls):
         return len(cls._object_selected_verts)
+
+    @classmethod
+    def get_final_points_cout(cls):
+        return cls.get_points_count() + cls._shape.span
 
 
 def register():

@@ -15,6 +15,9 @@ suzanne = [[-0.0, 0.709], [0.326, 0.669], [0.574, 0.444], [0.591, 0.236],
 
 
 class Shape:
+    __slots__ = ("span", "shift", "rotation", "is_generated", "points_distribution", "points_distribution_smooth",
+                 "bmesh", "bmesh_original", "target_points_count")
+
     def __init__(self, points, points_original, span, shift, rotation, is_generated=True,
                  target_points_count=0, points_distribution="SEQUENCE", points_distribution_smooth=False):
         self.span = span
@@ -25,12 +28,12 @@ class Shape:
         self.points_distribution = points_distribution
         self.points_distribution_smooth = points_distribution_smooth
 
-        self.bmesh = self.create_bmesh(points)
-        self.bmesh_original = self.create_bmesh_original(points_original)
+        self.bmesh = self.create_bmesh(self.apply_shift(points))
+        self.bmesh_original = self.create_bmesh_original(self.apply_shift(points_original))
         self.target_points_count = target_points_count
 
         self.apply_span()
-        self.apply_subdivide()
+        #self.apply_subdivide()
 
 
     def __del__(self):
@@ -105,6 +108,14 @@ class Shape:
     def clear_cache(self):
         pass
 
+    def sort_vets_by_loop(self):
+        self.bmesh.faces.ensure_lookup_table()
+        loops = self.bmesh.faces[0].loops
+        loops.index_update()
+        for idx, loop in enumerate(loops):
+            loop.vert.index = idx
+        self.bmesh.verts.sort()
+
     def apply_span(self):
         if self.span < 0:
             if self.is_generated:
@@ -113,8 +124,8 @@ class Shape:
                 cuts, rest = divmod(len(self.get_points_original()), edges_count)
                 for e in edges:
                     x, rest = (1, rest-1) if rest else (0, rest)
-                    bmesh.ops.subdivide_edges(self.bmesh, edges=[e], cuts=cuts-1+x)
-                self.bmesh.faces[0].loops.index_update()
+                    bmesh.ops.subdivide_edges(self.bmesh, edges=[e], cuts=cuts-1+x, quad_corner_type="FAN")
+                self.sort_vets_by_loop()
             else:
                 verts = self.bmesh.verts[:]
                 dissolved = 0
@@ -130,25 +141,29 @@ class Shape:
                 if dissolved:
                     pass
 
-        elif self.span > 0 and not self.is_generated:
-            final_span = self.span
-
-            self.bmesh.faces.ensure_lookup_table()
-            self.bmesh.faces[0].loops.index_update()
-            # bmesh.ops.subdivide_edges(self.bmesh,
+        elif self.span > 0:
+            if self.is_generated:
+                verts_to_dissolve = self.bmesh.verts[-self.span:]
+                bmesh.ops.dissolve_verts(self.bmesh, verts=verts_to_dissolve)
+            # not self.is_generated:
+            # final_span = self.span
             #
-            #                           edges=[l.edge for l in self.bmesh.faces[0].loops[:final_span]],
-            #                           cuts=1)
-            self.bmesh.faces.ensure_lookup_table()
-            self.bmesh.faces[0].loops.index_update()
+            # self.bmesh.faces.ensure_lookup_table()
+            # self.bmesh.faces[0].loops.index_update()
+            # # bmesh.ops.subdivide_edges(self.bmesh,
+            # #
+            # #                           edges=[l.edge for l in self.bmesh.faces[0].loops[:final_span]],
+            # #                           cuts=1)
+            # self.bmesh.faces.ensure_lookup_table()
+
 
         self.bmesh.faces.ensure_lookup_table()
         self.clear_cache()
 
-    def apply_shift(self):
-        self.points = self.points[self.shift % self.points_count:] + self.points[:self.shift % self.points_count]
-        # pco = self.points_count_original
-        # self.points_original = self.points_original[self.shift % pco:] + self.points_original[:self.shift % pco]
+    def apply_shift(self, points, points_count=None):
+        if points_count is None:
+            points_count = len(points)
+        return points[self.shift % points_count:] + points[:self.shift % points_count]
 
     def apply_distribution(self):
         if self.target_points_count:
@@ -188,13 +203,13 @@ class Shape:
     def Circle(cls, points_count, span, shift, rotation, max_points=None):
         final_points_count, final_span = cls._get_final_points_span(points_count, span, 3, max_points)
         original_points = circle_generator(final_points_count if span > 0 else points_count)
-        return cls(circle_generator(final_points_count), original_points, final_span, shift, rotation)
+        return cls(list(circle_generator(final_points_count)), list(original_points), final_span, shift, rotation)
 
     @classmethod
     def Rectangle(cls, points_count, ratio, span, shift, rotation, max_points=None):
         final_points_count, final_span = cls._get_final_points_span(points_count, span, 4, max_points)
         original_points = list(rectangle_generator(final_points_count if span > 0 else points_count, ratio))
-        return cls(rectangle_generator(final_points_count, ratio), original_points, final_span, shift, rotation)
+        return cls(list(rectangle_generator(final_points_count, ratio)), list(original_points), final_span, shift, rotation)
 
     @classmethod
     def Object(cls, name, span, shift, rotation, max_points=None, target_points_count=None,

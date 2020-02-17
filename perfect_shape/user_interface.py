@@ -110,13 +110,13 @@ class PerfectShapeWidget(GizmoGroup):
 
         def shift_get():
             op = PerfectShapeWidget.get_operator(context)
-            step = ((math.pi / 2) / (ShapeHelper.get_points_count() - 1))
+            step = ((math.pi / 2) / (ShapeHelper.get_final_points_cout() - 1))
             value = op.shift * step
             return value
 
         def shift_set(value):
             op = PerfectShapeWidget.get_operator(context)
-            step = ((math.pi / 2) / (ShapeHelper.get_points_count()-1))
+            step = ((math.pi / 2) / (ShapeHelper.get_final_points_cout()-1))
             op.shift = value // step
             op.execute(context)
 
