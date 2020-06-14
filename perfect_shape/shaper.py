@@ -1,5 +1,6 @@
-from functools import lru_cache
 from mathutils import Vector, Matrix
+from mathutils.kdtree import KDTree
+from bpy_extras.view3d_utils import region_2d_to_location_3d, region_2d_to_vector_3d, location_3d_to_region_2d
 import math
 import numpy
 
@@ -15,12 +16,13 @@ suzanne = [[-0.0, 0.709], [0.326, 0.669], [0.574, 0.444], [0.591, 0.236],
 
 
 class Shape:
-    __slots__ = ("span", "shift", "rotation", "is_generated", "points_distribution", "points_distribution_smooth",
-                 "bmesh", "bmesh_original", "target_points_count")
+    __slots__ = ("span", "span_cuts", "shift", "rotation", "is_generated", "points_distribution",
+                 "points_distribution_smooth", "bmesh", "bmesh_original", "target_points_count")
 
-    def __init__(self, points, points_original, span, shift, rotation, is_generated=True,
+    def __init__(self, points, points_original, span, span_cuts, shift, rotation, is_generated=True,
                  target_points_count=0, points_distribution="SEQUENCE", points_distribution_smooth=False):
         self.span = span
+        self.span_cuts = span_cuts
         self.shift = shift
         self.rotation = rotation
         self.is_generated = is_generated
@@ -28,13 +30,12 @@ class Shape:
         self.points_distribution = points_distribution
         self.points_distribution_smooth = points_distribution_smooth
 
-        self.bmesh = self.create_bmesh(self.apply_shift(points))
-        self.bmesh_original = self.create_bmesh_original(self.apply_shift(points_original))
+        self.bmesh = self.create_bmesh(points)
+        self.bmesh_original = self.create_bmesh_original(points_original)
         self.target_points_count = target_points_count
 
         self.apply_span()
         #self.apply_subdivide()
-
 
     def __del__(self):
         self.bmesh.free()
@@ -145,6 +146,10 @@ class Shape:
             if self.is_generated:
                 verts_to_dissolve = self.bmesh.verts[-self.span:]
                 bmesh.ops.dissolve_verts(self.bmesh, verts=verts_to_dissolve)
+                if self.span_cuts:
+                    self.bmesh.edges.ensure_lookup_table()
+                    bmesh.ops.subdivide_edges(self.bmesh, edges=[self.bmesh.edges[-1]], cuts=self.span_cuts)
+                    self.sort_vets_by_loop()
             # not self.is_generated:
             # final_span = self.span
             #
@@ -177,45 +182,65 @@ class Shape:
                     self.points = numpy.compress(mask, self.points, axis=0)
 
     @staticmethod
-    def _get_final_points_span(points_count, span, min_points, max_points, target_points_count=0):
-        if target_points_count:
-            final_points_count = max(points_count - target_points_count, min_points)
+    def _get_final_points_count_n_span(points_count, span, span_cuts, min_points, max_points, target_points_count=0):
+        if span_cuts == -1:
+            span_cuts = span
+        if span > 0:
+            final_span_cuts = min(span, span_cuts)
         else:
-            final_points_count = max(points_count + span, min_points)
+            final_span_cuts = 0
 
         final_span = span
+        if final_span_cuts:
+            final_span = max(1, final_span)
+
         if target_points_count:
             final_span += points_count - target_points_count
         if span < 0:
             final_span = min(abs(span), points_count - min_points)
             final_span *= -1
 
+        if target_points_count:
+            final_points_count = max(points_count - target_points_count, min_points)
+        else:
+            final_points_count = max(points_count + final_span - final_span_cuts, min_points)
+
+        original_points_count = points_count
         if max_points:
+            original_points_count = min(points_count, max_points)
             final_points_count = min(final_points_count, max_points)
-            final_span = min(final_span, max_points - points_count)
-        return final_points_count, final_span
+            final_span = min(final_span, max_points - final_points_count)
+        return original_points_count, final_points_count, final_span, final_span_cuts
 
-    def calc_best_shifts(self):
-        symmetry_points_weight = get_symmetry_points_weight(self.get_points())
-        return [i[0] for i in symmetry_points_weight]
 
     @classmethod
-    def Circle(cls, points_count, span, shift, rotation, max_points=None):
-        final_points_count, final_span = cls._get_final_points_span(points_count, span, 3, max_points)
-        original_points = circle_generator(final_points_count if span > 0 else points_count)
-        return cls(list(circle_generator(final_points_count)), list(original_points), final_span, shift, rotation)
+    def Circle(cls, points_count, span, span_cuts, shift, rotation, max_points, **extra_params):
+        original_points_count, points_count, span, span_cuts = cls._get_final_points_count_n_span(points_count, span,
+                                                                                                  span_cuts,
+                                                                                                  3, max_points)
+        points = list(circle_generator(points_count))
+        original_points = list(circle_generator(original_points_count))
+
+        return cls(points, original_points, span, span_cuts, shift, rotation)
 
     @classmethod
-    def Rectangle(cls, points_count, ratio, span, shift, rotation, max_points=None):
-        final_points_count, final_span = cls._get_final_points_span(points_count, span, 4, max_points)
-        original_points = list(rectangle_generator(final_points_count if span > 0 else points_count, ratio))
-        return cls(list(rectangle_generator(final_points_count, ratio)), list(original_points), final_span, shift, rotation)
+    def Quadrangle(cls, points_count, span, span_cuts, shift, rotation, max_points, *,
+                   ratio=(1, 1), **extra_params):
+        original_points_count, points_count, span, span_cuts = cls._get_final_points_count_n_span(points_count, span,
+                                                                                                  span_cuts,
+                                                                                                  3, max_points)
+        points = list(quadrangle_generator(points_count, ratio))
+        original_points = list(quadrangle_generator(original_points_count, ratio))
+
+        return cls(points, original_points, span, span_cuts, shift, rotation)
 
     @classmethod
-    def Object(cls, name, span, shift, rotation, max_points=None, target_points_count=None,
-               points_distribution="SEQUENCE", points_distribution_smooth=False):
-        points_count, span = cls._get_final_points_span(len(suzanne), span, 4, max_points, target_points_count)
-        return cls(suzanne, suzanne, span, shift, rotation, is_generated=False, target_points_count=target_points_count,
+    def Object(cls, points_count, span, span_cuts, shift, rotation, max_points, *,
+               points_distribution="SEQUENCE", points_distribution_smooth=False, **extra_params):
+        original_points_count, final_points_count, final_span, span_cuts = cls._get_final_points_count_n_span(points_count, span, span_cuts,
+                                                                                                   3, max_points,
+                                                                                                   points_count)
+        return cls(suzanne, suzanne, span, span_cuts, shift, rotation, is_generated=False, target_points_count=points_count,
                    points_distribution=points_distribution, points_distribution_smooth=points_distribution_smooth)
 
 
@@ -225,7 +250,7 @@ def circle_generator(verts_count):
         yield (-math.cos(theta), math.sin(theta))
 
 
-def rectangle_generator(verts_count, ratio):
+def quadrangle_generator(verts_count, ratio):
     verts_count_odd = verts_count - verts_count % 2
     max_segments = verts_count_odd // 2 - 1
 
@@ -261,6 +286,10 @@ def rectangle_generator(verts_count, ratio):
         for i in range(*_range):
             v = [segment_len * i - sizes[odd_side] / 2, sizes[odd_side ^ 1] / 2 * coords[side]]
             yield v if odd_side else v[2::-1]
+
+
+def star_generator(verts_count):
+    pass
 
 
 def bm_set_index_by_loops(loops, key):
@@ -299,3 +328,133 @@ def get_symmetry_points_weight(points):
         results.append((idx, sum(point_results)))
     results.sort(key=lambda i: i[1])
     return results
+
+
+def get_boundary_edges(faces):
+    result = []
+
+    def get_group(face, faces):
+        group = []
+        for edge in face.edges:
+            tree = [[], []]
+            for idx, edge_face in enumerate(edge.link_faces):
+                if edge_face not in group and edge_face in faces:
+                    group.append(edge_face)
+                    faces.remove(edge_face)
+                    if faces:
+                        tree[idx] = get_group(edge_face, faces)
+            group.extend(tree[0])
+            group.extend(tree[1])
+
+        return group
+
+    while len(faces) > 0:
+        group = get_group(faces[0], faces)
+        edges = []
+        for face in group:
+            for edge in face.edges:
+                for edge_face in edge.link_faces:
+                    if edge_face not in group:
+                        edges.append(edge)
+        result.append((edges, group))
+    return result
+
+
+def get_loop(edges, vert=None):
+    if vert is None:
+        edge = edges[0]
+        edges.remove(edge)
+        success_0, is_boundary_0, verts_0, edges_0 = get_loop(edges, edge.verts[0])
+        success_1, is_boundary_1, verts_1, edges_1 = get_loop(edges, edge.verts[1])
+        if len(verts_0) > 0:
+            edges_0.reverse()
+            verts_0.reverse()
+            verts_0 = verts_0 + [v for v in edge.verts if v not in verts_0]
+        if len(verts_1) > 0:
+            if len(verts_0) == 0:
+                verts_1 = verts_1 + [v for v in edge.verts if v not in verts_1]
+        is_boundary = is_boundary_0 and is_boundary_1
+        success = success_0 and success_1
+        if edge.is_boundary:
+            is_boundary = True
+        return success, is_boundary, verts_0 + verts_1, edges_0 + [edge] + edges_1
+
+    link_edges = [e for e in vert.link_edges if e in edges]
+
+    if len(link_edges) == 1:
+        edge = link_edges[0]
+        vert, = set(edge.verts) - {vert}
+        edges.remove(edge)
+        success, is_boundary, verts_, edges_ = get_loop(edges, vert)
+        if edge.is_boundary:
+            is_boundary = True
+        return success, is_boundary, [vert] + verts_, [edge] + edges_
+
+    elif len(link_edges) > 1:
+        for edge in link_edges:
+            edges.remove(edge)
+        return False, False, [], []
+
+    return True, False, [], []
+
+
+def get_loops(edges, faces=None):
+    edges = edges[:]
+    loops = []
+
+    if faces:
+        for group in get_boundary_edges(faces[:]):
+            success, is_boundary, loop_verts, loop_edges = get_loop(group[0])
+            is_cyclic = any((v for v in loop_edges[0].verts if v in loop_edges[-1].verts))
+            loops.append(((loop_verts, loop_edges, group[1]), is_cyclic, is_boundary))
+
+        for face in faces:
+            for face_edge in face.edges:
+                if face_edge.select and face_edge in edges:
+                    edges.remove(face_edge)
+
+    while len(edges) > 0:
+        success, is_boundary, loop_verts, loop_edges = get_loop(edges)
+        if success:
+            if len(loop_verts) < 2:
+                is_cyclic = False
+            else:
+                is_cyclic = any((v for v in loop_edges[0].verts if v in loop_edges[-1].verts))
+            loops.append(((loop_verts, loop_edges, []), is_cyclic, is_boundary))
+
+    return loops
+
+
+def is_clockwise(forward, center, verts):
+    return forward.dot((verts[0].co - center).cross(verts[1].co - center)) > 0
+
+
+def is_backface(bm_element, eye_location):
+    return (bm_element.co - eye_location).dot(bm_element.normal) >= 0.0
+
+
+def matrix_decompose_4x4(matrix):
+    loc, rot, sca = matrix.decompose()
+    matrix_rot = rot.to_matrix().to_4x4()
+    matrix_sca = Matrix()
+    matrix_sca[0][0], matrix_sca[1][1], matrix_sca[2][2] = sca
+    return Matrix.Translation(loc), matrix_rot, matrix_sca
+
+
+def points_3d_to_region_2d(points, region, rv3d):
+    return [location_3d_to_region_2d(region, rv3d, p) for p in points]
+
+
+def create_kdtree(points):
+    kd = KDTree(len(points))
+    kd_insert_func = kd.insert
+    v_len = len(points[0])
+    if v_len == 2:
+        def kd_insert(co, idx): kd_insert_func((*co, 0.0), idx)
+    else:
+        kd_insert = kd_insert_func
+
+    for i, v in enumerate(points):
+        kd_insert(v, i)
+    kd.balance()
+    return kd

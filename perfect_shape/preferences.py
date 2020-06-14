@@ -10,20 +10,27 @@ def register_keymaps():
     circle_select = ("perfect_shape.select_and_shape",
                      {"space_type": 'VIEW_3D', "region_type": 'WINDOW'},
                      {"items": [
-                         ("perfect_shape.select_and_shape", {"type": 'LEFTMOUSE', "value": 'PRESS'},
-                          {"properties": [("select_method", 'CIRCLE'), ("select_mode", 'SET')]}),
-                         ("perfect_shape.select_and_shape", {"type": 'LEFTMOUSE', "value": 'PRESS', "shift": True},
-                          {"properties": [("select_method", 'CIRCLE'), ("select_mode", 'ADD')]}),
-                         ("perfect_shape.select_and_shape", {"type": 'LEFTMOUSE', "value": 'PRESS', "ctrl": True},
-                          {"properties": [("select_method", 'CIRCLE'), ("select_mode", 'SUB')]}),
+                         ("perfect_shape.select_and_shape", {"type": 'LEFTMOUSE', "value": 'PRESS'}, {}),
+                         ("perfect_shape.perfect_shape", {"type": 'RET', "value": 'PRESS'}, {})
                      ]},)
+
+    perfect_select = ("perfect_shape.perfect_select",
+                      {"space_type": 'VIEW_3D', "region_type": 'WINDOW'},
+                      {"items": [
+                          ("perfect_shape.perfect_select", {"type": 'LEFTMOUSE', "value": 'PRESS'},
+                           {"properties": [("wait_for_input", False), ("mode", "SET")]})
+                      ]},)
+
+
+    keymaps.append(perfect_select)
+    keymaps.append(circle_select)
 
     keyconfigs = bpy.context.window_manager.keyconfigs
     kc_defaultconf = keyconfigs.default
     kc_addonconf = keyconfigs.addon
 
-    keyconfig_init_from_data(kc_defaultconf, [circle_select])
-    keyconfig_init_from_data(kc_addonconf, [circle_select])
+    keyconfig_init_from_data(kc_defaultconf, keymaps)
+    keyconfig_init_from_data(kc_addonconf, keymaps)
 
 
 def register():

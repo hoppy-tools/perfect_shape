@@ -1,23 +1,28 @@
-import time
-
 import bpy
 
-from bpy.app import timers as bpy_timers
-from bpy.props import (EnumProperty, BoolProperty, IntProperty, FloatProperty, StringProperty)
+from bpy.props import (EnumProperty, BoolProperty, IntProperty, FloatProperty, StringProperty, FloatVectorProperty)
 from .previews import get_shape_preview_icon_id
 from .helpers import ShapeHelper, AppHelper
 from .user_interface import perfect_shape_tool
 from bl_ui.space_toolsystem_common import activate_by_id
 
 
-previews_update_time = None
-previews_update_data = None
-
 shapes_types_dict = None
 
 
 def enum_shape_types(self, context):
-    return shapes_types_dict[self.shape_source]
+    if context:
+        region = context.region
+        if region and region.type == "HUD" and ShapeHelper._shape_key:
+            items_list = []
+            for items in shapes_types_dict[self.shape_source]:
+                items = list(items)
+                if ShapeHelper._shape_key == items[0]:
+                    items[3] = get_shape_preview_icon_id("current_shape")
+                items_list.append(tuple(items))
+            return tuple(items_list)
+
+    return tuple(tuple(i) for i in shapes_types_dict[self.shape_source])
 
 
 def shape_source_update(self, context):
@@ -25,24 +30,18 @@ def shape_source_update(self, context):
 
 
 def trigger_update_previews(self, context):
-    global previews_update_time
-    global previews_update_data
-
-    def update_all_previews():
-        global previews_update_time
-        global previews_update_data
-
-        if previews_update_time and time.time() - previews_update_time > 0.3:
-            ShapeHelper.generate_shapes(*previews_update_data)
-            previews_update_time = None
-            previews_update_data = None
-        else:
-            bpy_timers.register(update_all_previews)
-
-    previews_update_time = time.time()
-    previews_update_data = (self.shift, self.span, self.rotation, (self.ratio_a, self.ratio_b), None, None, self.shape,
-                            self.points_distribution, self.points_distribution_smooth)
-    update_all_previews()
+    ShapeHelper.generate_shapes(points_count=None,
+                                shift=self.shift,
+                                span=self.span,
+                                span_cuts=self.span_cuts,
+                                rotation=self.rotation,
+                                key=self.shape,
+                                # extra params
+                                ratio=(self.ratio_a, self.ratio_b),
+                                points_distribution=self.points_distribution,
+                                points_distribution_smooth=self.points_distribution_smooth
+                                )
+    ShapeHelper.render_previews(self.shape, self.rotation)
 
 
 def get_mesh_object_poll(self, object):
@@ -63,13 +62,28 @@ def get_shift(self):
     return self.get('shift', 0)
 
 
+class PerfectSelectOperatorProperties:
+    x: IntProperty()
+    y: IntProperty()
+    mode: EnumProperty(name="Mode",
+                       items=(("SET", "Set", "Set a new selection", "SELECT_SET", 0),
+                              ("ADD", "Extend", "Extend existing selection", "SELECT_EXTEND", 1),
+                              ("SUB", "Subtract", "Subtract existing selection", "SELECT_SUBTRACT", 2)),
+                       default="ADD")
+    radius: IntProperty(name="Select Radius", min=5, default=25)
+    wait_for_input: BoolProperty(default=True)
+    align_to_normal: BoolProperty(name="Align to normal", default=False,
+                                  description="Align selection area to faces normal.")
+    use_set_preselect: BoolProperty(name="Preselect", default=False,
+                                    description="Apply selection after button release.")
+
+
 class ShaperProperties:
     shape_source: EnumProperty(name="Shape Source",
                                items=(("GENERIC", "Generic", "Generic Shape"),
-                                      ("OBJECT", "Object", "Shape from object"),
-                                      ("PATTERN", "Pattern", "Defined shape pattern")),
+                                      ("OBJECT", "Object", "Shape from object")),
                                update=shape_source_update)
-    shape: EnumProperty(name="Shape", items=enum_shape_types)
+    shape: EnumProperty(name="Shape", items=enum_shape_types, update=trigger_update_previews)
 
     influence: FloatProperty(name="Influence", default=100.0, min=0.0, max=100.0, precision=1, subtype='PERCENTAGE')
 
@@ -79,7 +93,11 @@ class ShaperProperties:
 
     target: StringProperty()
 
-    span: IntProperty(name="Span", update=trigger_update_previews)
+    span: IntProperty(name="Span", update=trigger_update_previews,
+                      description="Number of vertices to skip in shape mapping")
+    span_cuts: IntProperty(name="Span Cuts", min=-1, default=-1, update=trigger_update_previews,
+                           description="Number of split points, auto if value equals -1")
+    span_cuts_auto: BoolProperty(name="Auto Cuts", description="Automatically adjust the cuts", default=False)
     shift: IntProperty(name="Shift", update=trigger_update_previews, set=set_shift, get=get_shift)
     shift_next_better: BoolProperty(name="Next better shift", description="Next better shift",
                                     default=False, update=get_best_shift)
@@ -125,14 +143,24 @@ def tool_actions_update(self, context):
 
 class PerfectShapeToolSettings(bpy.types.PropertyGroup):
     action: EnumProperty(name="Action", items=tool_actions_enum, update=tool_actions_update)
+    select_radius: IntProperty(name="Select Radius", min=5, default=25)
+    snap_loc: FloatVectorProperty(name="Snap Position", size=2)
+    snap_enabled: BoolProperty(name="Snap Enabled", default=False)
+    align_to_normal: BoolProperty(name="Align Selection to Normal", default=True)
+    use_snap_perfect_select: BoolProperty(name="Perfect Select", default=True,
+                                          description="Perfect Select is affected by snapping settings.")
+    use_snap_edge_slide: BoolProperty(name="Slide on edge", default=True,
+                                          description="Slide on edge loop")
+    show_select_cursor: BoolProperty(default=True)
+    use_set_preselect: BoolProperty(default=False)
 
 
 def register():
     global shapes_types_dict
     shapes_types_dict = {
-        "GENERIC": (("CIRCLE", "Circle", "Simple circle", get_shape_preview_icon_id("CIRCLE"), 0),
-                    ("RECTANGLE", "Rectangle", "Simple rectangle", get_shape_preview_icon_id("RECTANGLE"), 1)),
-        "OBJECT": (("OBJECT", "Object", "Custom shape from object", get_shape_preview_icon_id("OBJECT"), 0),)
+        "GENERIC": [["CIRCLE", "Circle", "Simple circle", get_shape_preview_icon_id("CIRCLE"), 0],
+                    ["QUADRANGLE", "Quadrangle", "Simple quadrangle", get_shape_preview_icon_id("QUADRANGLE"), 1]],
+        "OBJECT": [["OBJECT", "Object", "Custom shape from object", get_shape_preview_icon_id("OBJECT"), 0]]
     }
 
     bpy.utils.register_class(PerfectShapeToolSettings)

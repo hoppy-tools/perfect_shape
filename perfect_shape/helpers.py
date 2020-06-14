@@ -7,7 +7,7 @@ from functools import lru_cache
 from bpy.app.handlers import persistent
 from mathutils import Vector, Matrix
 
-from perfect_shape.shaper import Shape
+from perfect_shape.shaper import Shape, get_loops
 from perfect_shape.previews import PREVIEW_MAX_POINTS, render_preview
 
 
@@ -69,27 +69,20 @@ class AppHelper:
 
 
 class ShapeHelper:
-    __slots__ = tuple()
-
     _object = None
     _object_bm = None
-    _object_selected_verts = []
-    _object_selected_edges = []
-    _object_selected_faces = []
 
-    _pattern = None
-    _pattern_bm = None
+    _object_geom_loops = []
+    _object_work_verts = []
+    _object_work_edges = []
+    _object_work_faces = []
 
     _shape = None
     _shape_key = None
     _shape_preview = None
-    _shape_best_shifts = []
-    _shape_best_shift_cursor = 0
-
+    _shapes_previews = {}
     _shape_last_props = ()
     _shape_last_rotation = 0.0
-
-    _previews_shapes = {}
 
     max_points = None
 
@@ -102,32 +95,30 @@ class ShapeHelper:
     def prepare_object(cls, object):
         cls._object = object
         cls._object_bm = bmesh.from_edit_mesh(cls._object.data)
-        cls.refresh_selection()
+        cls.prepare_working_geom()
 
     @classmethod
-    def refresh_selection(cls):
-        cls._object_selected_verts = [v for v in cls._object_bm.verts if v.select]
-        cls._object_selected_edges = [e for e in cls._object_bm.edges if e.select]
-        cls._object_selected_faces = [f for f in cls._object_bm.faces if f.select]
-
-        # Cache data for transform orientation
-        if cls._object_selected_verts:
-            cls.get_object_selected_avr_position()
-            cls.get_object_selected_avr_normal()
+    def prepare_working_geom(cls):
+        cls._object_geom_loops = get_loops([e for e in cls._object_bm.edges if e.select],
+                                           [f for f in cls._object_bm.faces if f.select])
+        if cls._object_geom_loops:
+            cls._object_work_verts = cls._object_geom_loops[0][0][0]
+            cls._object_work_edges = cls._object_geom_loops[0][0][1]
+            cls._object_work_faces = cls._object_geom_loops[0][0][2]
 
     @classmethod
     @lru_cache(maxsize=1)
     def get_object_selected_avr_position(cls):
         verts_co_average = Vector()
-        for v in cls._object_selected_verts:
+        for v in cls._object_work_verts:
             verts_co_average += v.co
-        return verts_co_average / len(cls._object_selected_verts)
+        return verts_co_average / len(cls._object_work_verts)
 
     @classmethod
     @lru_cache(maxsize=1)
     def get_object_selected_avr_normal(cls):
         avr_normal = Vector()
-        geometry = cls._object_selected_faces if cls._object_selected_faces else cls._object_selected_verts
+        geometry = cls._object_work_faces if cls._object_work_faces else cls._object_work_verts
         for v in geometry:
             avr_normal += v.normal
         return avr_normal / len(geometry)
@@ -164,87 +155,53 @@ class ShapeHelper:
         return cls._shape is not None
 
     @classmethod
-    def generate_shapes(cls, shift, span, rotation, generic_params=None, shape_key=None, main_key=None,
-                        exclude_key=None, points_distribution="SEQUENCE", points_distribution_smooth=False):
-        points_count = len(cls._object_selected_verts)
-        if points_count < 3:
-            points_count = 8
+    def generate_shapes(cls, points_count=12, shift=0, span=0, span_cuts=0,
+                        rotation=0.0, shape_key=None, **extra_params):
+        if points_count is None:
+            points_count = cls.get_points_count()
+        shape_constructors = {
+            "CIRCLE":
+                lambda _max_points: Shape.Circle(points_count, span, span_cuts,
+                                                 shift, rotation, _max_points, **extra_params),
+            "QUADRANGLE":
+                lambda _max_points: Shape.Quadrangle(points_count, span, span_cuts,
+                                                     shift, rotation, _max_points, **extra_params),
+            "OBJECT":
+                lambda _max_points: Shape.Object(points_count, span, span_cuts,
+                                                 shift, rotation, _max_points, **extra_params)}
 
-        target_points_count = len(cls._object_selected_verts)
-        if target_points_count < 3:
-            target_points_count = 8
-
-        shape_props = (shift, span, generic_params, shape_key, points_distribution, points_distribution_smooth)
-
-        if cls._shape_last_props == shape_props:
-            if cls._shape_last_rotation == rotation:
-                return False
-            return True
-
-        shapes = {"CIRCLE":     lambda m: Shape.Circle(points_count, span, shift, rotation, max_points=m),
-                  "RECTANGLE":  lambda m: Shape.Rectangle(points_count, generic_params, span, shift, rotation,
-                                                          max_points=m),
-                  "OBJECT":     lambda m: Shape.Object(points_count, span, shift, rotation,
-                                                       max_points=m,
-                                                       target_points_count=target_points_count,
-                                                       points_distribution=points_distribution,
-                                                       points_distribution_smooth=points_distribution_smooth)}
-
+        total_points_count = points_count + span + span_cuts
         if shape_key is not None:
-            cls._previews_shapes[shape_key] = shapes[shape_key](PREVIEW_MAX_POINTS)
-            cls._shape_preview = cls._shape = cls._previews_shapes[shape_key]
-            if points_count + span >= PREVIEW_MAX_POINTS:
-                cls._shape = shapes[shape_key](None)
-        else:
-            for key, func in shapes.items():
-                if exclude_key == key:
-                    continue
-                cls._previews_shapes[key] = func(PREVIEW_MAX_POINTS)
-                if main_key == key:
-                    cls._shape = func(None) if points_count + span >= PREVIEW_MAX_POINTS else cls._previews_shapes[key]
+            cls._shape_preview = cls._shape = shape_constructors[shape_key](PREVIEW_MAX_POINTS)
+            if total_points_count >= PREVIEW_MAX_POINTS:
+                cls._shape = shape_constructors[shape_key](None)
 
-        if points_count + span >= PREVIEW_MAX_POINTS:
+        else:
+            for key, func in shape_constructors.items():
+                cls._shapes_previews[key] = func(PREVIEW_MAX_POINTS)
+                if cls._shape is None:
+                    cls._shape = cls._shape_preview = cls._shapes_previews[key]
+
+        if total_points_count >= PREVIEW_MAX_POINTS:
             cls.max_points = PREVIEW_MAX_POINTS
         else:
             cls.max_points = None
 
-        cls._shape_last_props = shape_props
+        #cls._shape_last_props = shape_props
         cls._shape_last_rotation = rotation
         return True
 
     @classmethod
     def render_previews(cls, shape_key=None, rotation=None):
-        if shape_key is not None:
-            render_preview("shape_types", shape_key, cls._previews_shapes[shape_key], rotation)
+        if shape_key:
+            render_preview("shape_types", "current_shape", cls._shapes_previews[shape_key], rotation)
         else:
-            for shape_key in ("CIRCLE", "RECTANGLE", "OBJECT"):
-                render_preview("shape_types", shape_key, cls._previews_shapes[shape_key], rotation)
+            for shape_key in ("CIRCLE", "QUADRANGLE", "OBJECT"):
+                render_preview("shape_types", shape_key, cls._shapes_previews[shape_key], rotation)
 
     @classmethod
     def get_shape(cls):
         return cls._shape
-
-    @classmethod
-    def calc_best_shifts(cls):
-        pass
-
-    @classmethod
-    def get_best_shifts(cls):
-        if not cls._shape_best_shifts:
-            cls._shape_best_shifts.extend(cls._shape.calc_best_shifts())
-            cls._shape_best_shift_cursor = 0
-        return cls._shape_best_shifts
-
-    @classmethod
-    def clear_best_shifts(cls):
-        cls._shape_best_shifts.clear()
-
-    @classmethod
-    def get_next_best_shift(cls):
-        best_shifts = cls.get_best_shifts()
-        best_shift = best_shifts[cls._shape_best_shift_cursor % len(best_shifts)]
-        cls._shape_best_shift_cursor += 1
-        return best_shift
 
     @classmethod
     def clear(cls):
@@ -256,20 +213,17 @@ class ShapeHelper:
         cls._object_selected_edges = None
         cls._object_selected_faces = None
 
-        cls._pattern = None
-        cls._pattern_bm = None
-
         cls._shape = None
         cls._shape_preview = None
         cls._previews_shapes = None
 
     @classmethod
     def get_points_count(cls):
-        return len(cls._object_selected_verts)
+        return len(cls._object_work_verts)
 
     @classmethod
     def get_final_points_cout(cls):
-        return cls.get_points_count() + cls._shape.span
+        return cls.get_points_count()
 
 
 def register():
