@@ -149,8 +149,8 @@ class PerfectShapeToolSettings(bpy.types.PropertyGroup):
     align_to_normal: BoolProperty(name="Align Selection to Normal", default=True)
     use_snap_perfect_select: BoolProperty(name="Perfect Select", default=True,
                                           description="Perfect Select is affected by snapping settings.")
-    use_snap_edge_slide: BoolProperty(name="Slide on edge", default=True,
-                                          description="Slide on edge loop")
+    use_snap_edge_slide: BoolProperty(name="Slide on edge loop", default=False,
+                                          description="Slide on edge loop.")
     show_select_cursor: BoolProperty(default=True)
     use_set_preselect: BoolProperty(default=False)
 

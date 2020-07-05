@@ -374,7 +374,8 @@ def perfect_shape_snapping_panel(self, context):
     layout = self.layout
     col = layout.column()
     col.prop(ps_tool_setting, 'use_snap_perfect_select', toggle=1)
-    if any(e in tool_settings.snap_elements for e in ("EDGE", "EDGE_MIDPOINT", "EDGE_PERPENDICULAR")):
+    if ps_tool_setting.use_snap_perfect_select and \
+            any(e in tool_settings.snap_elements for e in ("EDGE", "EDGE_MIDPOINT", "EDGE_PERPENDICULAR")):
         col.prop(ps_tool_setting, 'use_snap_edge_slide')
 
 
